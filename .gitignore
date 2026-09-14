@@ -35,3 +35,6 @@ Thumbs.db
 # 运行时数据与日志
 pgdata/
 *.log
+
+# AI 助手的工作目录（项目记忆 / 工作日志）：本地保留，不属于交付物
+.workbuddy-ai/
