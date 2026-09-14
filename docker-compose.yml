@@ -1,0 +1,255 @@
+name: ${COMPOSE_PROJECT_NAME:-warehouse-erp}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-warehouse_erp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-warehouse_erp_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-warehouse_erp}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${DB_BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 30s
+
+  db-migrate:
+    image: postgres:16-alpine
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-warehouse_erp}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-warehouse_erp_dev_only}
+      PGDATABASE: ${POSTGRES_DB:-warehouse_erp}
+    volumes:
+      - ./db/migrations:/migrations:ro
+      - ./db/seeds:/seeds:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      for file in /migrations/*.sql; do
+        [ -f "$${file}" ] || continue
+        psql -v ON_ERROR_STOP=1 -f "$${file}"
+      done
+      for file in /seeds/*.sql; do
+        [ -f "$${file}" ] || continue
+        psql -v ON_ERROR_STOP=1 -f "$${file}"
+      done
+
+  backend:
+    image: python:3.13-slim
+    profiles: ["app"]
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-warehouse_erp}:${POSTGRES_PASSWORD:-warehouse_erp_dev_only}@db:5432/${POSTGRES_DB:-warehouse_erp}
+      JWT_SECRET: ${HUB_JWT_SECRET:-replace-with-at-least-32-random-bytes}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-480}
+      WMS_API_TOKEN: ${WMS_API_TOKEN:-replace-with-wms-api-token}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:-replace-with-webhook-hmac-secret}
+      WEBHOOK_TOLERANCE_SECONDS: ${WEBHOOK_TOLERANCE_SECONDS:-300}
+      SENTRY_BASE_URL: ${SENTRY_BASE_URL:-http://wms:5000/api/v1}
+      SENTRY_TOKEN: ${SENTRY_TOKEN:-replace-with-sentry-token}
+      SENTRY_TIMEOUT_SECONDS: ${SENTRY_TIMEOUT_SECONDS:-10}
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      SEED_DEFAULT_CATEGORIES: "false"
+      TIMEOUT_SCAN_INTERVAL_SECONDS: ${TIMEOUT_SCAN_INTERVAL_SECONDS:-300}
+      TZ: ${TZ:-Asia/Shanghai}
+    command: >-
+      sh -ec "pip install -r requirements.txt &&
+      exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - backend-pip-cache:/root/.cache/pip
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  frontend-ops:
+    image: node:22-alpine
+    profiles: ["app"]
+    restart: unless-stopped
+    working_dir: /app
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+      VITE_DEMO_FALLBACK: ${VITE_DEMO_FALLBACK:-false}
+    command: sh -ec "npm ci && exec npm run dev -- --host 0.0.0.0 --port 4173"
+    ports:
+      - "${FRONTEND_OPS_BIND_HOST:-127.0.0.1}:${FRONTEND_OPS_PORT:-4173}:4173"
+    volumes:
+      - ./frontend-ops:/app
+      - frontend-ops-node-modules:/app/node_modules
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["wms"]
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-replace-with-redis-password}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-replace-with-redis-password}
+
+  wms-db-init:
+    image: postgres:16-alpine
+    profiles: ["wms"]
+    restart: "no"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-warehouse_erp}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-warehouse_erp_dev_only}
+      PGDATABASE: ${POSTGRES_DB:-warehouse_erp}
+    volumes:
+      - ./wms/db/schema.sql:/wms/schema.sql:ro
+    entrypoint: ["/bin/sh", "-ec"]
+    command: |
+      if [ "$$(psql -Atqc "SELECT COALESCE(to_regclass('public.items')::text, '')")" != "items" ]; then
+        psql -v ON_ERROR_STOP=1 -f /wms/schema.sql
+      fi
+
+  wms:
+    build:
+      context: ./wms
+      dockerfile: api/Dockerfile
+    profiles: ["wms"]
+    restart: unless-stopped
+    depends_on:
+      wms-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment: &wms-environment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-warehouse_erp}:${POSTGRES_PASSWORD:-warehouse_erp_dev_only}@db:5432/${POSTGRES_DB:-warehouse_erp}
+      JWT_SECRET: ${WMS_JWT_SECRET:-replace-with-at-least-32-random-bytes}
+      FLASK_ENV: ${WMS_FLASK_ENV:-production}
+      FLASK_PORT: 5000
+      TRUST_PROXY: ${WMS_TRUST_PROXY:-false}
+      API_BIND_HOST: 0.0.0.0
+      CORS_ORIGINS: ${WMS_CORS_ORIGINS:-http://localhost:8080,http://localhost:4173}
+      SENTRY_ENCRYPTION_KEY: ${SENTRY_ENCRYPTION_KEY:-replace-with-valid-fernet-key}
+      SENTRY_TOKEN_PEPPER: ${SENTRY_TOKEN_PEPPER:-replace-with-token-pepper-at-least-32-bytes}
+      SENTRY_PUBSUB_HMAC_KEY: ${SENTRY_PUBSUB_HMAC_KEY:-replace-with-pubsub-hmac-at-least-32-bytes}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-replace-with-redis-password}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD:-replace-with-redis-password}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-replace-with-redis-password}@redis:6379/0
+      SENTRY_INBOUND_MAPPINGS_DIR: /db/mappings
+      SENTRY_INBOUND_MAX_BODY_KB: ${SENTRY_INBOUND_MAX_BODY_KB:-256}
+      INBOUND_RATE_LIMIT_PER_MINUTE: ${INBOUND_RATE_LIMIT_PER_MINUTE:-500}
+      # Hub (代发仓 ERP 中枢) 仓库端页面代理。HUB_WMS_TOKEN 就是 Hub 侧校验的
+      # WMS_API_TOKEN —— 刻意复用同一个值，避免两边配错后很难排查。
+      HUB_BASE_URL: ${HUB_BASE_URL:-http://backend:8000}
+      HUB_WMS_TOKEN: ${WMS_API_TOKEN:-replace-with-wms-api-token}
+      HUB_TIMEOUT_SECONDS: ${HUB_TIMEOUT_SECONDS:-10}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${WMS_BIND_HOST:-127.0.0.1}:${WMS_PORT:-5000}:5000"
+    volumes:
+      - ./wms/db:/db:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 5000), 3).close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  wms-worker:
+    build:
+      context: ./wms
+      dockerfile: api/Dockerfile
+    profiles: ["wms"]
+    restart: unless-stopped
+    depends_on:
+      wms-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment: *wms-environment
+    command: celery -A jobs worker --loglevel=info --pool=solo
+    volumes:
+      - ./wms/db:/db:ro
+
+  wms-webhook-dispatcher:
+    build:
+      context: ./wms
+      dockerfile: api/Dockerfile
+    profiles: ["wms"]
+    restart: unless-stopped
+    depends_on:
+      wms-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *wms-environment
+      DISPATCHER_ENABLED: ${DISPATCHER_ENABLED:-true}
+      DISPATCHER_HEARTBEAT_FILE: /tmp/webhook-dispatcher-heartbeat
+      DISPATCHER_HTTP_TIMEOUT_MS: ${DISPATCHER_HTTP_TIMEOUT_MS:-10000}
+      DISPATCHER_HTTP_CONNECT_TIMEOUT_MS: ${DISPATCHER_HTTP_CONNECT_TIMEOUT_MS:-3000}
+      DISPATCHER_HTTP_READ_TIMEOUT_MS: ${DISPATCHER_HTTP_READ_TIMEOUT_MS:-7000}
+      DISPATCHER_FALLBACK_POLL_MS: ${DISPATCHER_FALLBACK_POLL_MS:-2000}
+      DISPATCHER_SHUTDOWN_DRAIN_S: ${DISPATCHER_SHUTDOWN_DRAIN_S:-30}
+      DISPATCHER_MAX_CONCURRENT_POSTS: ${DISPATCHER_MAX_CONCURRENT_POSTS:-16}
+      DISPATCHER_MAX_PENDING_HARD_CAP: ${DISPATCHER_MAX_PENDING_HARD_CAP:-50000}
+      DISPATCHER_MAX_DLQ_HARD_CAP: ${DISPATCHER_MAX_DLQ_HARD_CAP:-5000}
+      SENTRY_ALLOW_HTTP_WEBHOOKS: ${SENTRY_ALLOW_HTTP_WEBHOOKS:-false}
+      SENTRY_ALLOW_INTERNAL_WEBHOOKS: ${SENTRY_ALLOW_INTERNAL_WEBHOOKS:-false}
+    command: python -m services.webhook_dispatcher
+    volumes:
+      - ./wms/db:/db:ro
+    healthcheck:
+      test: ["CMD", "python", "-m", "services.webhook_dispatcher.healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  wms-admin:
+    build: ./wms/admin
+    profiles: ["wms"]
+    restart: unless-stopped
+    depends_on:
+      wms:
+        condition: service_healthy
+    environment:
+      API_UPSTREAM_URL: http://wms:5000
+      API_UPSTREAM_HOST: wms:5000
+    ports:
+      - "${WMS_ADMIN_BIND_HOST:-127.0.0.1}:${WMS_ADMIN_PORT:-8080}:8080"
+
+volumes:
+  postgres-data:
+  redis-data:
+  backend-pip-cache:
+  frontend-ops-node-modules:

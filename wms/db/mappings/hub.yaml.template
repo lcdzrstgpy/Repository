@@ -1,0 +1,92 @@
+# Hub ERP integration mapping template, 2026-09-14.
+# Copy to db/mappings/hub.yaml before starting the API.
+# The filename stem, source_system, allowlist row, and WMS token source_system
+# must all be exactly "hub".
+
+mapping_version: "1.0"
+source_system: "hub"
+version_compare: "iso_timestamp"
+
+resources:
+  items:
+    canonical_type: "item"
+    fields:
+      - canonical: "sku"
+        source_path: "$.sku_code"
+        type: "string"
+        required: true
+      - canonical: "item_name"
+        source_path: "$.item_name"
+        type: "string"
+        required: true
+      - canonical: "category_id"
+        source_path: "$.category_id"
+        type: "integer"
+        required: true
+      - canonical: "code_status"
+        source_path: "$.code_status"
+        type: "enum"
+        required: true
+        enum_values: ["draft", "active"]
+      - canonical: "spec_name"
+        source_path: "$.spec_name"
+        type: "string"
+        required: false
+      - canonical: "upc"
+        source_path: "$.barcode"
+        type: "string"
+        required: false
+      - canonical: "weight_lbs"
+        source_path: "$.weight_lbs"
+        type: "decimal"
+        required: false
+      - canonical: "is_active"
+        source_path: "$.is_active"
+        type: "boolean"
+        required: false
+        default: true
+
+  sales_orders:
+    canonical_type: "sales_order"
+    fields:
+      - canonical: "so_number"
+        source_path: "$.order_no"
+        type: "string"
+        required: true
+      - canonical: "warehouse_id"
+        source_path: "$.warehouse_id"
+        type: "integer"
+        required: false
+      - canonical: "memo"
+        source_path: "$.remark"
+        type: "string"
+        required: false
+      - canonical: "order_origin"
+        source_path: "$.order_origin"
+        type: "string"
+        required: false
+        default: "hub"
+      - canonical: "status"
+        source_path: "$.status"
+        type: "enum"
+        required: false
+        default: "OPEN"
+        enum_values: ["OPEN", "CANCELLED"]
+    line_items:
+      source_path: "$.lines"
+      canonical_path: "lines"
+      fields:
+        - canonical: "item_id"
+          source_path: "$.sku_code"
+          type: "uuid"
+          required: true
+          cross_system_lookup:
+            source_type: "item"
+        - canonical: "quantity_ordered"
+          source_path: "$.qty"
+          type: "integer"
+          required: true
+        - canonical: "line_number"
+          source_path: "$.line_no"
+          type: "integer"
+          required: true
