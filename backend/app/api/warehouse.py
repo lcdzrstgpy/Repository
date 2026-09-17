@@ -41,7 +41,7 @@ from app.models.order import (
 )
 from app.models.user import SysUser
 from app.schemas.order import ClaimIn, ShipIn
-from app.services.inventory_service import check_available, shortage_message
+from app.services.inventory_service import check_available, default_warehouse_id, shortage_message
 
 router = APIRouter(prefix="/api/warehouse", tags=["仓储侧·订单处理"])
 
@@ -93,7 +93,7 @@ def purchase_summary(
 ):
     """按仓库和货号汇总所有「备货中」订单的未发数量，辅助一次性采购。
 
-    只有运营确认过数量且已进入备货中的订单才计入；已发货、已取消和仍待确认的
+    只有运营确认过数量且已进入备货中的订单才计入；已完成、已取消和仍待确认的
     订单不会混入采购需求。建议采购量 = max(待备数量 - 当前可用库存, 0)。
     """
     conditions = [SalesOrder.status == ORDER_STATUS_PREPARING, SalesOrderItem.sku_id.is_not(None)]
@@ -254,7 +254,7 @@ def claim_order(
     order = get_order_or_404(db, order_id, for_update=True)
     target = ensure_transition(order.status, "接单")
 
-    warehouse = db.get(Warehouse, payload.warehouse_id)
+    warehouse = db.get(Warehouse, default_warehouse_id(db))
     if warehouse is None:
         raise BizException("仓库不存在")
     if warehouse.status != 1:
@@ -544,12 +544,13 @@ def ship_order(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
-    """发货。仅 status = 30 可发货，写 shipped_at / express_no。
+    """发货。仅 status = 30 可发货，写 shipped_at / express_no，并直接把订单置为「已完成」。
 
     二阶段增强（契约 9.1）：发货会真实扣减库存并生成一张已完成状态的出库单，
     请求/响应格式保持不变。
 
-    这是状态回传点：运营端轮询列表即可看到状态变为「已发货」。
+    六阶段修订：发货是全流程最后一个动作，发完即 `status = 50` 并写 `finished_at`，
+    运营端无需再点「确认完成」；`shipped_at` 仍保留为发货时间。
 
     并发保护：先对订单行加 `FOR UPDATE` 锁再读状态，避免并发下重复发货、重复扣库存。
     """
@@ -583,7 +584,9 @@ def ship_order(
     create_sales_out_from_order(db, order, current_user.id, payload.express_no)
 
     order.status = target
-    order.shipped_at = datetime.now()
+    now = datetime.now()
+    order.shipped_at = now
+    order.finished_at = now
     order.express_no = payload.express_no
     db.commit()
     db.refresh(order)

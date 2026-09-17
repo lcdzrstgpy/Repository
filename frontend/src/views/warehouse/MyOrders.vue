@@ -4,7 +4,6 @@
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane :label="`已接单`" name="20" />
         <el-tab-pane :label="`数量待确认`" name="25" />
-        <el-tab-pane :label="`已发货`" name="40" />
         <el-tab-pane :label="`已完成`" name="50" />
       </el-tabs>
 
@@ -91,7 +90,7 @@ const total = ref(0)
 const detailVisible = ref(false)
 const currentOrderId = ref(null)
 
-/** 当前页签：20 已接单 / 25 数量待确认 / 40 已发货 / 50 已完成 */
+/** 当前页签：20 已接单 / 25 数量待确认 / 50 已完成 */
 const activeTab = ref('20')
 
 const query = reactive({

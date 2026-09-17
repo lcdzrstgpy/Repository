@@ -1,26 +1,10 @@
 <template>
   <div class="page-container">
-    <!-- 查询条件：仅仓库筛选（契约 18.3） -->
+    <!-- 查询条件 -->
     <el-card shadow="never" class="search-card">
       <div class="module-purpose">库存预警 / 补货提醒</div>
       <WarehouseInventoryTabs class="tabs" />
       <el-form :model="query" inline>
-        <el-form-item label="仓库">
-          <el-select
-            v-model="query.warehouse_id"
-            placeholder="全部仓库"
-            clearable
-            filterable
-            style="width: 180px"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
@@ -56,9 +40,6 @@
         <el-table-column prop="product_name" label="商品名称" min-width="160" show-overflow-tooltip />
         <el-table-column prop="spec" label="规格" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.spec || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="warehouse_name" label="仓库" width="130">
-          <template #default="{ row }">{{ row.warehouse_name || '未入库' }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="现存数量" width="110" align="right">
           <template #default="{ row }">{{ formatCount(row.quantity) }}</template>
@@ -108,7 +89,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getInventoryAlerts } from '@/api/inventory'
-import { getWarehouseOptions } from '@/api/basic'
 import { formatCount } from '@/utils/format'
 import WarehouseInventoryTabs from './components/WarehouseInventoryTabs.vue'
 
@@ -116,22 +96,16 @@ const loading = ref(false)
 const router = useRouter()
 const list = ref([])
 const total = ref(0)
-const warehouseOptions = ref([])
 
 const query = reactive({
   page: 1,
   page_size: 20,
-  warehouse_id: ''
 })
 
 async function load() {
   loading.value = true
   try {
     const params = { page: query.page, page_size: query.page_size }
-    if (query.warehouse_id !== '' && query.warehouse_id !== null) {
-      params.warehouse_id = query.warehouse_id
-    }
-
     const data = await getInventoryAlerts(params)
     list.value = data?.list || []
     total.value = data?.total || 0
@@ -146,7 +120,6 @@ function handleSearch() {
 }
 
 function handleReset() {
-  query.warehouse_id = ''
   query.page = 1
   load()
 }
@@ -166,16 +139,14 @@ function createPurchase(row) {
   router.push({
     path: '/warehouse/purchase/create',
     query: {
-      warehouse_id: row.warehouse_id,
       sku_id: row.sku_id,
       count: Math.max(1, Number(row.shortage) || 1)
     }
   })
 }
 
-onMounted(async () => {
+onMounted(() => {
   load()
-  warehouseOptions.value = (await getWarehouseOptions()) || []
 })
 </script>
 

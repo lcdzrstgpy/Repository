@@ -24,16 +24,13 @@
               {{ detail.status_text || purchaseStatusLabel(detail.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="供应商">{{ detail.supplier_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="采购快递单号">{{ detail.express_no || '-' }}</el-descriptions-item>
           <el-descriptions-item label="关联销售订单">
             {{ detail.sales_order_no || '无' }}
           </el-descriptions-item>
           <el-descriptions-item label="总数量">{{ formatCount(detail.total_count) }}</el-descriptions-item>
           <el-descriptions-item label="总金额">
             ￥{{ formatAmount(detail.total_price) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="期望到货">
-            {{ detail.expect_date || '-' }}
           </el-descriptions-item>
           <el-descriptions-item label="创建人">{{ detail.created_by_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="审批人">

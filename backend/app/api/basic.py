@@ -24,6 +24,7 @@ from app.models.inventory import Inventory
 from app.models.user import SysUser
 from app.schemas import basic as bs
 from app.schemas.serializers import fmt_dec, partner_out, product_out, sku_out, user_out, warehouse_out
+from app.services.inventory_service import default_warehouse_id
 
 # ---------------------------------------------------------------- 通用 CRUD 工厂
 
@@ -315,7 +316,7 @@ def item_query(
     db: Session = Depends(get_db),
     _current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
 ):
-    """按货号或商品资料查询，只读返回每个仓库的库存余额。"""
+    """按货号或商品资料查询，只读返回单仓库存余额。"""
     stmt = select(ProductSku, Product).join(Product, Product.id == ProductSku.product_id)
     kw = (keyword or "").strip()
     if kw:
@@ -332,26 +333,22 @@ def item_query(
         stmt.where(ProductSku.status == 1).order_by(ProductSku.id.desc())
     ).all()
     sku_ids = [sku.id for sku, _product in rows]
-    stock_map: dict[int, list[dict]] = {}
+    stock_map: dict[int, dict] = {}
     if sku_ids:
-        inventories = db.execute(
-            select(Inventory, Warehouse)
-            .join(Warehouse, Warehouse.id == Inventory.warehouse_id)
-            .where(Inventory.sku_id.in_(sku_ids))
-            .order_by(Inventory.sku_id.asc(), Warehouse.id.asc())
+        inventories = db.scalars(
+            select(Inventory).where(
+                Inventory.sku_id.in_(sku_ids),
+                Inventory.warehouse_id == default_warehouse_id(db),
+            )
         ).all()
-        for inventory, warehouse in inventories:
+        for inventory in inventories:
             quantity = inventory.quantity or 0
             reserved = inventory.reserved_quantity or 0
-            stock_map.setdefault(inventory.sku_id, []).append(
-                {
-                    "warehouse_id": warehouse.id,
-                    "warehouse_name": warehouse.name,
-                    "quantity": fmt_dec(quantity),
-                    "reserved_quantity": fmt_dec(reserved),
-                    "available_quantity": fmt_dec(quantity - reserved),
-                }
-            )
+            stock_map[inventory.sku_id] = {
+                "quantity": fmt_dec(quantity),
+                "reserved_quantity": fmt_dec(reserved),
+                "available_quantity": fmt_dec(quantity - reserved),
+            }
 
     return ok(
         [
@@ -361,7 +358,10 @@ def item_query(
                 "sku_code": sku.sku_code,
                 "product_name": product.name,
                 "spec": sku.spec,
-                "stocks": stock_map.get(sku.id, []),
+                **stock_map.get(
+                    sku.id,
+                    {"quantity": 0.0, "reserved_quantity": 0.0, "available_quantity": 0.0},
+                ),
             }
             for sku, product in rows
         ]
@@ -430,9 +430,8 @@ user_router = build_crud_router(
 
 
 def register_basic_routers(app) -> None:
-    """把五组基础数据路由挂到应用上。"""
+    """把小型单仓项目需要的基础数据路由挂到应用上。"""
     for router in (
-        warehouse_router,
         product_router,
         sku_router,
         item_router,

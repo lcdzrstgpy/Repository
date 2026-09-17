@@ -35,6 +35,20 @@ ORDER_TYPE_TEXT: dict[str, str] = {
 }
 
 
+def default_warehouse_id(db: Session) -> int:
+    """返回单仓模式下系统唯一的内部库存归属。
+
+    历史数据仍带 warehouse_id，避免直接删列让库存、订单和流水失联；所有新业务
+    操作都自动写入第一条启用记录，调用方不再传入或选择仓库。
+    """
+    warehouse = db.scalars(
+        select(Warehouse).where(Warehouse.status == 1).order_by(Warehouse.id.asc()).limit(1)
+    ).first()
+    if warehouse is None:
+        raise BizException("系统未初始化库存，请联系管理员")
+    return warehouse.id
+
+
 def order_type_text(order_type: str | None) -> str:
     """单据类型转中文名，未知类型原样返回。"""
     if not order_type:

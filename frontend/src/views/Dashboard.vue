@@ -46,7 +46,7 @@
       <el-descriptions :column="1" border>
         <el-descriptions-item label="订单流转">
           运营下单（待接单 10）→ 仓储接单（已接单 20）→ 仓储绑完货号（数量待确认 25）→
-          运营确认数量（备货中 30）→ 仓储发货并回传物流单号（已发货 40）→ 运营确认完成（已完成 50）
+          运营确认数量（备货中 30）→ 仓储发货并回传物流单号（已完成 50）
         </el-descriptions-item>
         <el-descriptions-item label="取消规则">
           仅「待接单 / 已接单 / 数量待确认 / 备货中」可取消，取消后状态为「已取消 90」，需填写取消原因
@@ -76,7 +76,7 @@ const updatedAt = ref('')
 const stats = ref({
   pending: 0,
   preparing: 0,
-  shipped: 0,
+  finished: 0,
   total: 0,
   alerts: 0
 })
@@ -98,7 +98,7 @@ const statCards = computed(() => {
   const cards = [
     { key: 'pending', label: '待接单', value: stats.value.pending, icon: 'Bell', color: '#909399' },
     { key: 'preparing', label: '备货中', value: stats.value.preparing, icon: 'Box', color: '#e6a23c' },
-    { key: 'shipped', label: '已发货', value: stats.value.shipped, icon: 'Van', color: '#67c23a' },
+    { key: 'finished', label: '已完成', value: stats.value.finished, icon: 'Van', color: '#67c23a' },
     { key: 'total', label: '总订单数', value: stats.value.total, icon: 'Tickets', color: '#409eff' }
   ]
   // 库存预警卡：点击跳转预警页
@@ -138,14 +138,14 @@ async function fetchAlertTotal() {
 async function loadStats() {
   loading.value = true
   try {
-    const [pending, preparing, shipped, total] = await Promise.all([
+    const [pending, preparing, finished, total] = await Promise.all([
       fetchTotal(10),
       fetchTotal(30),
-      fetchTotal(40),
+      fetchTotal(50),
       fetchTotal()
     ])
     const alerts = canViewAlerts.value ? await fetchAlertTotal() : 0
-    stats.value = { pending, preparing, shipped, total, alerts }
+    stats.value = { pending, preparing, finished, total, alerts }
     updatedAt.value = new Date().toLocaleString('zh-CN', { hour12: false })
   } finally {
     loading.value = false

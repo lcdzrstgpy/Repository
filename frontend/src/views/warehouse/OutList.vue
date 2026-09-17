@@ -5,22 +5,6 @@
       <div class="module-purpose">查询 / 追溯出库</div>
       <WarehouseFulfillmentTabs class="tabs" />
       <el-form :model="query" inline>
-        <el-form-item label="仓库">
-          <el-select
-            v-model="query.warehouse_id"
-            placeholder="全部仓库"
-            clearable
-            filterable
-            style="width: 180px"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
@@ -56,9 +40,6 @@
         <el-table-column prop="no" label="出库单号" width="170" />
         <el-table-column prop="order_no" label="关联订单号" width="170">
           <template #default="{ row }">{{ row.order_no || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="warehouse_name" label="仓库" width="120">
-          <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
@@ -113,7 +94,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import WarehouseFulfillmentTabs from './components/WarehouseFulfillmentTabs.vue'
 import { getOutList, cancelOut } from '@/api/stock'
-import { getWarehouseOptions } from '@/api/basic'
 import { outStatusType, outStatusLabel } from '@/utils/constants'
 import { formatAmount, formatCount } from '@/utils/format'
 import OutDetailDrawer from './components/OutDetailDrawer.vue'
@@ -126,12 +106,10 @@ const router = useRouter()
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
-const warehouseOptions = ref([])
 
 const query = reactive({
   page: 1,
   page_size: 20,
-  warehouse_id: '',
   keyword: ''
 })
 
@@ -142,9 +120,6 @@ async function load() {
   loading.value = true
   try {
     const params = { page: query.page, page_size: query.page_size }
-    if (query.warehouse_id !== '' && query.warehouse_id !== null) {
-      params.warehouse_id = query.warehouse_id
-    }
     if (query.keyword) params.keyword = query.keyword.trim()
 
     const data = await getOutList(params)
@@ -161,7 +136,6 @@ function handleSearch() {
 }
 
 function handleReset() {
-  query.warehouse_id = ''
   query.keyword = ''
   query.page = 1
   load()
@@ -208,7 +182,6 @@ async function handleCancel(row) {
 
 onMounted(async () => {
   load()
-  warehouseOptions.value = (await getWarehouseOptions()) || []
 })
 </script>
 

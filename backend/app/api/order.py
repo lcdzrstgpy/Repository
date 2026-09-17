@@ -1,4 +1,4 @@
-"""运营侧订单接口（契约 19，覆盖 5.3）：下单、列表、详情、确认数量、取消、确认完成。
+"""运营侧订单接口（契约 19，覆盖 5.3）：下单、列表、详情、确认数量、取消。
 
 六阶段起运营录入的是外部平台订单：请求体只有订单号 + 明细（商品名 / 货号或新品 /
 数量 / 预计成本），不再有客户字段；明细的 `sku_id` 留空，由仓储端「关联货号」回填。
@@ -373,21 +373,3 @@ def confirm_quantity(
     db.commit()
     db.refresh(order)
     return ok(build_order_detail(db, order), msg="已确认数量，开始备货")
-
-
-@router.post("/{order_id}/confirm", summary="确认完成")
-def confirm_order(
-    order_id: int,
-    db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("operator", "admin")),
-):
-    """确认完成。仅 status = 40 时可确认；operator 只能确认自己的订单。"""
-    order = get_order_or_404(db, order_id)
-    ensure_visible(order, current_user)
-
-    target = ensure_transition(order.status, "确认完成")
-    order.status = target
-    order.finished_at = datetime.now()
-    db.commit()
-    db.refresh(order)
-    return ok(build_order_detail(db, order), msg="订单已完成")

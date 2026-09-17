@@ -37,7 +37,7 @@ export function cancelPurchaseOrder(id) {
 
 /**
  * 收货入库：增加库存并生成入库单
- * @param {Object} data { warehouse_id, remark, items: [{ order_item_id, count }] }
+ * @param {Object} data { remark, items: [{ order_item_id, count }] }
  */
 export function receivePurchaseOrder(id, data) {
   return request.post(`/api/purchase-orders/${id}/receive`, data)

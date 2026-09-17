@@ -27,12 +27,8 @@
             <span class="meta-value">{{ detail.created_at || '-' }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">供应商：</span>
-            <span class="meta-value">{{ detail.supplier_name || '-' }}</span>
-          </div>
-          <div class="meta-item">
-            <span class="meta-label">期望到货：</span>
-            <span class="meta-value">{{ detail.expect_date || '-' }}</span>
+            <span class="meta-label">采购快递单号：</span>
+            <span class="meta-value">{{ detail.express_no || '-' }}</span>
           </div>
           <div class="meta-item">
             <span class="meta-label">关联订单号：</span>

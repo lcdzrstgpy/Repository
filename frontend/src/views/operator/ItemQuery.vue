@@ -39,15 +39,9 @@
         <el-table-column prop="spec" label="规格" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.spec || '-' }}</template>
         </el-table-column>
-        <el-table-column label="各仓库库存（只读）" min-width="340">
+        <el-table-column label="库存（只读）" min-width="220">
           <template #default="{ row }">
-            <div v-if="row.stocks?.length" class="stock-list">
-              <div v-for="stock in row.stocks" :key="stock.warehouse_id">
-                {{ stock.warehouse_name }}：可用 {{ formatCount(stock.available_quantity) }} / 库存
-                {{ formatCount(stock.quantity) }}
-              </div>
-            </div>
-            <span v-else class="text-muted">暂无库存记录</span>
+            可用 {{ formatCount(row.available_quantity) }} / 库存 {{ formatCount(row.quantity) }}
           </template>
         </el-table-column>
       </el-table>
@@ -80,9 +74,3 @@ function handleReset() {
 
 onMounted(load)
 </script>
-
-<style scoped>
-.stock-list {
-  line-height: 1.8;
-}
-</style>

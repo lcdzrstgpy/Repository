@@ -20,7 +20,6 @@ ORDER_STATUS_PENDING = 10  # 待接单
 ORDER_STATUS_CLAIMED = 20  # 已接单
 ORDER_STATUS_QUANTITY_CONFIRM = 25  # 数量待确认（仓储绑完所有货号后系统自动进入）
 ORDER_STATUS_PREPARING = 30  # 备货中
-ORDER_STATUS_SHIPPED = 40  # 已发货
 ORDER_STATUS_FINISHED = 50  # 已完成
 ORDER_STATUS_CANCELLED = 90  # 已取消
 
@@ -30,7 +29,6 @@ ORDER_STATUS_TEXT: dict[int, str] = {
     ORDER_STATUS_CLAIMED: "已接单",
     ORDER_STATUS_QUANTITY_CONFIRM: "数量待确认",
     ORDER_STATUS_PREPARING: "备货中",
-    ORDER_STATUS_SHIPPED: "已发货",
     ORDER_STATUS_FINISHED: "已完成",
     ORDER_STATUS_CANCELLED: "已取消",
 }
@@ -42,11 +40,12 @@ AUDIT_STATUS_AUDITED = 1  # 已审批
 # 状态流转合法表（契约第十八节）
 # 键：操作名；值：(允许的当前状态集合, 目标状态)
 # 注意：原「备货」(20 → 30) 路径已废弃，进入备货中统一由运营的 confirm-quantity 触发。
+# 「发货」即终态：仓储发货是全流程最后一个动作，发货完成订单直接进入「已完成」，
+# 运营端不再需要二次确认（原 40 已发货与「确认完成」流转已下线）。
 ORDER_TRANSITIONS: dict[str, tuple[set[int], int]] = {
     "接单": ({ORDER_STATUS_PENDING}, ORDER_STATUS_CLAIMED),
     "确认数量": ({ORDER_STATUS_QUANTITY_CONFIRM}, ORDER_STATUS_PREPARING),
-    "发货": ({ORDER_STATUS_PREPARING}, ORDER_STATUS_SHIPPED),
-    "确认完成": ({ORDER_STATUS_SHIPPED}, ORDER_STATUS_FINISHED),
+    "发货": ({ORDER_STATUS_PREPARING}, ORDER_STATUS_FINISHED),
     "取消": (
         {
             ORDER_STATUS_PENDING,

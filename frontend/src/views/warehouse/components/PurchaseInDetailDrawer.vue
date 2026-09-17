@@ -17,7 +17,6 @@
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item label="关联采购单">{{ detail.order_no || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="入库仓库">{{ detail.warehouse_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="总数量">{{ formatCount(detail.total_count) }}</el-descriptions-item>
           <el-descriptions-item label="总金额">
             ￥{{ formatAmount(detail.total_price) }}

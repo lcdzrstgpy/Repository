@@ -107,9 +107,7 @@ class ConfirmQuantityIn(BaseModel):
 
 
 class ClaimIn(BaseModel):
-    """接单。"""
-
-    warehouse_id: int = Field(..., gt=0, description="指派仓库 id")
+    """接单。单仓模式不再需要选择仓库。"""
 
 
 class ShipIn(BaseModel):

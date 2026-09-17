@@ -18,7 +18,6 @@ class InventoryAdjustIn(BaseModel):
     """手动调整库存。quantity 是**目标值**，不是变动量。"""
 
     sku_id: int = Field(..., gt=0, description="SKU id")
-    warehouse_id: int = Field(..., gt=0, description="仓库 id")
     quantity: Decimal = Field(..., ge=0, description="调整后的目标库存量")
     remark: str | None = Field(None, max_length=500, description="备注")
 
@@ -27,7 +26,6 @@ class InventoryInboundIn(BaseModel):
     """采购或提前备货入库。quantity 是本次增加量。"""
 
     sku_id: int = Field(..., gt=0, description="SKU id")
-    warehouse_id: int = Field(..., gt=0, description="仓库 id")
     quantity: StrictInt = Field(..., gt=0, description="本次入库数量（正整数）")
     remark: str | None = Field(None, max_length=500, description="备注")
 

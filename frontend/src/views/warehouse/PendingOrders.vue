@@ -83,8 +83,8 @@
       </div>
     </el-card>
 
-    <!-- 接单弹窗：选择仓库 -->
-    <el-dialog v-model="claimVisible" title="接单并关联货号" width="460px" @closed="handleDialogClosed">
+    <!-- 接单确认 -->
+    <el-dialog v-model="claimVisible" title="接单并关联货号" width="460px">
       <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
         <el-descriptions-item label="订单号">{{ currentRow?.no }}</el-descriptions-item>
         <el-descriptions-item label="商品行数">{{ formatCount(currentRow?.item_count) }}</el-descriptions-item>
@@ -93,23 +93,6 @@
         </el-descriptions-item>
       </el-descriptions>
 
-      <el-form ref="claimFormRef" :model="claimForm" :rules="claimRules" label-width="80px">
-        <el-form-item label="仓库" prop="warehouse_id">
-          <el-select
-            v-model="claimForm.warehouse_id"
-            placeholder="请选择接单仓库"
-            filterable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
 
       <template #footer>
         <el-button @click="claimVisible = false">取消</el-button>
@@ -130,7 +113,6 @@
 import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPendingOrders, claimOrder } from '@/api/warehouse'
-import { getWarehouseOptions } from '@/api/basic'
 import { ORDER_STATUS_OPTIONS } from '@/utils/constants'
 import { formatAmount, formatCount } from '@/utils/format'
 import WarehouseOrderDetailDrawer from './components/WarehouseOrderDetailDrawer.vue'
@@ -139,7 +121,6 @@ const loading = ref(false)
 const submitting = ref(false)
 const list = ref([])
 const total = ref(0)
-const warehouseOptions = ref([])
 
 const query = reactive({
   page: 1,
@@ -157,17 +138,12 @@ const activeStatusTab = computed({
 })
 
 const claimVisible = ref(false)
-const claimFormRef = ref(null)
 const currentRow = ref(null)
-const claimForm = reactive({ warehouse_id: null })
 
 // 详情抽屉
 const detailVisible = ref(false)
 const currentOrderId = ref(null)
 
-const claimRules = {
-  warehouse_id: [{ required: true, message: '请选择接单仓库', trigger: 'change' }]
-}
 
 async function load() {
   loading.value = true
@@ -211,10 +187,6 @@ function handlePageChange(page) {
   load()
 }
 
-async function loadWarehouses() {
-  warehouseOptions.value = (await getWarehouseOptions()) || []
-}
-
 function openDetail(row) {
   currentOrderId.value = row.id
   detailVisible.value = true
@@ -222,22 +194,14 @@ function openDetail(row) {
 
 function openClaim(row) {
   currentRow.value = row
-  claimForm.warehouse_id = null
   claimVisible.value = true
 }
 
-function handleDialogClosed() {
-  claimFormRef.value?.clearValidate()
-}
-
 async function handleClaim() {
-  const valid = await claimFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
   const claimedId = currentRow.value.id
   submitting.value = true
   try {
-    await claimOrder(claimedId, claimForm.warehouse_id)
+    await claimOrder(claimedId)
     ElMessage.success('接单成功，请在当前详情中完成货号关联')
     claimVisible.value = false
     await load()
@@ -252,7 +216,6 @@ async function handleClaim() {
 
 onMounted(() => {
   load()
-  loadWarehouses()
 })
 </script>
 

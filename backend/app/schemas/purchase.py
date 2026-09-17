@@ -33,10 +33,8 @@ class PurchaseItemIn(BaseModel):
 class PurchaseOrderCreateIn(BaseModel):
     """创建采购单。total_count / total_price 由后端汇总，不接受前端传值。"""
 
-    supplier_id: int = Field(..., gt=0, description="供应商 id")
     sales_order_id: int | None = Field(None, gt=0, description="关联销售订单 id（因缺货采购时传）")
-    warehouse_id: int | None = Field(None, gt=0, description="采购完成后的目标入库仓库 id")
-    expect_date: date | None = Field(None, description="期望到货日期")
+    express_no: str | None = Field(None, max_length=64, description="采购快递单号")
     remark: str | None = Field(None, max_length=500, description="备注")
     items: list[PurchaseItemIn] = Field(..., min_length=1, description="采购明细，至少一条")
 
@@ -62,7 +60,7 @@ class PurchaseReceiveItemIn(BaseModel):
 class PurchaseReceiveIn(BaseModel):
     """收货入库。"""
 
-    warehouse_id: int = Field(..., gt=0, description="入库仓库 id")
+    express_no: str | None = Field(None, max_length=64, description="采购快递单号（可补填）")
     remark: str | None = Field(None, max_length=500, description="备注")
     items: list[PurchaseReceiveItemIn] = Field(..., min_length=1, description="入库明细，至少一条")
 
@@ -116,15 +114,12 @@ def purchase_order_brief(
     return {
         "id": order.id,
         "no": order.no,
-        "supplier_name": supplier_name,
         "sales_order_no": sales_order_no,
-        "warehouse_id": order.warehouse_id,
-        "warehouse_name": warehouse_name,
         "status": int(order.status) if order.status is not None else 0,
         "status_text": purchase_status_text(order.status),
         "total_count": fmt_dec(order.total_count),
         "total_price": fmt_dec(order.total_price),
-        "expect_date": fmt_date(order.expect_date),
+        "express_no": order.express_no,
         "created_by_name": created_by_name,
         "approved_by_name": approved_by_name,
         "created_at": fmt_dt(order.created_at),
@@ -146,7 +141,6 @@ def purchase_order_detail(
     )
     data.update(
         {
-            "supplier_id": order.supplier_id,
             "sales_order_id": order.sales_order_id,
             "remark": order.remark,
             "approved_at": fmt_dt(order.approved_at),
@@ -186,8 +180,6 @@ def purchase_in_brief(
         "no": purchase_in.no,
         "order_id": purchase_in.order_id,
         "order_no": purchase_in.order_no,
-        "warehouse_id": purchase_in.warehouse_id,
-        "warehouse_name": warehouse_name,
         "status": int(purchase_in.status) if purchase_in.status is not None else 0,
         "status_text": purchase_in_status_text(purchase_in.status),
         "total_count": fmt_dec(purchase_in.total_count),

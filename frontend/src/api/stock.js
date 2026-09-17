@@ -5,7 +5,7 @@ import request from './request'
  * 契约 9.4
  */
 
-/** 出库单列表，支持 ?page=&page_size=&keyword=&warehouse_id= */
+/** 出库单列表，支持 ?page=&page_size=&keyword= */
 export function getOutList(params) {
   return request.get('/api/sales-outs', { params })
 }
@@ -22,7 +22,7 @@ export function cancelOut(id) {
 
 /**
  * 手动调整库存（仓储、管理员）
- * @param {Object} data { sku_id, warehouse_id, quantity, remark }
+ * @param {Object} data { sku_id, quantity, remark }
  *   quantity 为目标值，后端算差异后走 change_inventory
  */
 export function adjustInventory(data) {

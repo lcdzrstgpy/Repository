@@ -52,7 +52,7 @@ frontend/
     │   ├── request.js      # Axios 封装（token 注入 + 统一响应处理）
     │   ├── auth.js         # 登录 / 当前用户 / 退出
     │   ├── basic.js        # 仓库、商品、SKU、往来单位、用户 CRUD + 下拉选项
-    │   ├── order.js        # 运营侧订单（创建 / 列表 / 详情 / 取消 / 确认完成）
+    │   ├── order.js        # 运营侧订单（创建 / 列表 / 详情 / 取消）
     │   ├── warehouse.js    # 仓储侧（待接单 / 接单 / 备货 / 发货）
     │   └── inventory.js    # 库存列表 / 库存流水
     ├── router/
@@ -118,7 +118,6 @@ frontend/
 | 10 | 待接单 | info（灰） |
 | 20 | 已接单 | primary（蓝） |
 | 30 | 备货中 | warning（橙） |
-| 40 | 已发货 | success（绿） |
 | 50 | 已完成 | success（绿） |
 | 90 | 已取消 | danger（红） |
 
@@ -137,8 +136,7 @@ frontend/
 
 | 操作 | 可用条件 | 位置 |
 |---|---|---|
-| 取消订单 | status ∈ {10, 20, 30}，需填取消原因 | 我的订单 |
-| 确认完成 | status = 40 | 我的订单 |
+| 取消订单 | status ∈ {10, 20, 25, 30}，需填取消原因 | 我的订单 |
 | 接单 | status = 10，需选仓库 | 待接单 |
 | 开始备货 | status = 20 | 我处理的单（已接单页签） |
 | 发货 | status = 30，需填物流单号 | 备货中 |
@@ -160,7 +158,7 @@ frontend/
 
 1. **库存流水字段**：契约只给出 `GET /api/inventory/history` 的查询参数，未定义响应字段。前端按 `inventory_history` 表结构渲染（`quantity` / `before_quantity` / `after_quantity` / `order_no` / `order_type` / `created_at`），操作人优先取 `created_by_name`，缺失时回退 `created_by`。
 2. **用户新增/修改**：契约未定义请求体，前端提交 `username` / `password` / `real_name` / `role` / `status`；编辑时密码留空则不提交 `password` 字段。
-3. **首页统计**：契约无统计接口，前端用 `GET /api/sales-orders` 的 `total` 分别统计待接单（10）、备货中（30）、已发货（40）与全部订单数（每次 `page_size=1`）。
-4. **我处理的单**：契约的 `status` 查询参数为单值，页面用三个页签（已接单 20 / 已发货 40 / 已完成 50）分别查询。
+3. **首页统计**：契约无统计接口，前端用 `GET /api/sales-orders` 的 `total` 分别统计待接单（10）、备货中（30）、已完成（50）与全部订单数（每次 `page_size=1`）。
+4. **我处理的单**：契约的 `status` 查询参数为单值，页面用三个页签（已接单 20 / 数量待确认 25 / 已完成 50）分别查询。
 5. **approver 角色**：契约注明一阶段仅建数据、不实现界面，前端未做审批页面，仅保证该角色登录后能进入首页。
 6. 生产构建产物为静态文件，部署时需由 Nginx 等将 `/api` 反向代理到后端，或改为直接使用后端地址。

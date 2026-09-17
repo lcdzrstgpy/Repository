@@ -19,22 +19,6 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="仓库">
-          <el-select
-            v-model="query.warehouse_id"
-            placeholder="全部仓库"
-            clearable
-            filterable
-            style="width: 180px"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">
             <el-icon><Search /></el-icon>
@@ -61,9 +45,6 @@
         <el-table-column prop="created_at" label="变动时间" width="170" />
         <el-table-column prop="sku_code" label="货号" width="130" />
         <el-table-column prop="product_name" label="商品名称" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="warehouse_name" label="仓库" width="120">
-          <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
-        </el-table-column>
         <el-table-column prop="quantity" label="变动量" width="100" align="right">
           <template #default="{ row }">
             <span :class="Number(row.quantity) >= 0 ? 'in-stock' : 'out-stock'">
@@ -109,7 +90,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getInventoryHistory } from '@/api/inventory'
-import { getSkuOptions, getWarehouseOptions } from '@/api/basic'
+import { getSkuOptions } from '@/api/basic'
 import { orderTypeLabel } from '@/utils/constants'
 import { formatCount } from '@/utils/format'
 
@@ -117,13 +98,11 @@ const loading = ref(false)
 const list = ref([])
 const total = ref(0)
 const skuOptions = ref([])
-const warehouseOptions = ref([])
 
 const query = reactive({
   page: 1,
   page_size: 20,
-  sku_id: '',
-  warehouse_id: ''
+  sku_id: ''
 })
 
 async function load() {
@@ -131,9 +110,6 @@ async function load() {
   try {
     const params = { page: query.page, page_size: query.page_size }
     if (query.sku_id !== '' && query.sku_id !== null) params.sku_id = query.sku_id
-    if (query.warehouse_id !== '' && query.warehouse_id !== null) {
-      params.warehouse_id = query.warehouse_id
-    }
 
     const data = await getInventoryHistory(params)
     list.value = data?.list || []
@@ -150,7 +126,6 @@ function handleSearch() {
 
 function handleReset() {
   query.sku_id = ''
-  query.warehouse_id = ''
   query.page = 1
   load()
 }
@@ -168,9 +143,7 @@ function handlePageChange(page) {
 
 onMounted(async () => {
   load()
-  const [skus, warehouses] = await Promise.all([getSkuOptions(), getWarehouseOptions()])
-  skuOptions.value = skus || []
-  warehouseOptions.value = warehouses || []
+  skuOptions.value = (await getSkuOptions()) || []
 })
 </script>
 

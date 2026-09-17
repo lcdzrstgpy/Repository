@@ -206,18 +206,6 @@ export const routes = [
 
       // ---------- 基础数据（仅管理员） ----------
       {
-        path: 'basic/warehouses',
-        name: 'BasicWarehouse',
-        component: () => import('@/views/basic/WarehouseManage.vue'),
-        meta: {
-          title: '仓库管理',
-          icon: 'OfficeBuilding',
-          roles: ['admin'],
-          menu: true,
-          group: '基础数据'
-        }
-      },
-      {
         path: 'basic/products',
         name: 'BasicProduct',
         component: () => import('@/views/basic/ProductManage.vue'),

@@ -13,46 +13,7 @@
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
-          <el-col :span="8">
-            <el-form-item label="供应商" prop="supplier_id">
-              <el-select
-                v-model="form.supplier_id"
-                placeholder="请选择供应商"
-                filterable
-                clearable
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="item in supplierOptions"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="目标入库仓库" prop="warehouse_id">
-              <el-select v-model="form.warehouse_id" placeholder="请选择仓库" filterable style="width: 100%">
-                <el-option v-for="item in warehouseOptions" :key="item.id" :label="item.name" :value="item.id" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item label="期望到货日期">
-              <el-date-picker
-                v-model="form.expect_date"
-                type="date"
-                placeholder="请选择期望到货日期"
-                value-format="YYYY-MM-DD"
-                style="width: 100%"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-
-        <el-row :gutter="16">
-          <el-col :span="10">
+          <el-col :span="12">
             <el-form-item label="关联缺货订单">
               <el-select
                 v-model="form.sales_order_id"
@@ -67,13 +28,20 @@
                   :label="item.no"
                   :value="item.id"
                 >
-                  <span>{{ item.no }} · {{ item.warehouse_name || '-' }} · {{ formatCount(candidateTotal(item)) }} 件待采购</span>
+                  <span>{{ item.no }} · {{ formatCount(candidateTotal(item)) }} 件待采购</span>
                   <span class="option-extra">{{ item.items?.length || 0 }} 个缺货 SKU</span>
                 </el-option>
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="14">
+          <el-col :span="12">
+            <el-form-item label="采购快递单号">
+              <el-input v-model="form.express_no" placeholder="选填，下单后可补充" maxlength="64" clearable />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row :gutter="16">
+          <el-col :span="24">
             <el-form-item label="备注">
               <el-input
                 v-model="form.remark"
@@ -193,7 +161,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createPurchaseOrder, getPurchaseCandidates } from '@/api/purchase'
 import { getOrderDetail } from '@/api/order'
-import { getPartnerOptions, getSkuOptions, getWarehouseOptions } from '@/api/basic'
+import { getSkuOptions } from '@/api/basic'
 import { formatAmount, formatCount } from '@/utils/format'
 
 const router = useRouter()
@@ -201,27 +169,20 @@ const route = useRoute()
 
 const formRef = ref(null)
 const submitting = ref(false)
-const supplierOptions = ref([])
 const skuOptions = ref([])
-const warehouseOptions = ref([])
 const purchaseCandidates = ref([])
 /** 采购价上限：{ [sku_id]: expect_price }，取自所关联销售订单明细的预计成本 */
 const priceCapMap = ref({})
 
 const form = reactive({
-  supplier_id: null,
   sales_order_id: null,
-  warehouse_id: null,
-  expect_date: '',
+  express_no: '',
   remark: '',
   // 明细行：sku_id 关联 SKU，count 采购数量，price 采购单价
   items: [createEmptyItem()]
 })
 
-const rules = {
-  supplier_id: [{ required: true, message: '请选择供应商', trigger: 'change' }],
-  warehouse_id: [{ required: true, message: '请选择目标入库仓库', trigger: 'change' }]
-}
+const rules = {}
 
 function createEmptyItem() {
   return { sku_id: null, count: 1, price: 0 }
@@ -297,7 +258,6 @@ async function applyPurchaseCandidate(orderId) {
     priceCapMap.value = {}
     return
   }
-  form.warehouse_id = candidate.warehouse_id
   form.items = candidate.items.map((item) => ({
     sku_id: item.sku_id,
     count: Number(item.suggested_purchase),
@@ -372,10 +332,8 @@ async function handleSubmit() {
   try {
     // total_count / total_price 由后端汇总，前端不传
     await createPurchaseOrder({
-      supplier_id: form.supplier_id,
       sales_order_id: form.sales_order_id || null,
-      warehouse_id: form.warehouse_id,
-      expect_date: form.expect_date || null,
+      express_no: form.express_no.trim() || null,
       remark: form.remark,
       items: form.items.map((row) => ({
         sku_id: row.sku_id,
@@ -383,30 +341,24 @@ async function handleSubmit() {
         price: Number(row.price)
       }))
     })
-    ElMessage.success('采购单创建成功，等待审批')
+    ElMessage.success('采购单创建成功')
     router.push('/warehouse/purchase')
   } finally {
     submitting.value = false
   }
 }
 
-/** 加载供应商、SKU、仓库与库存不足订单候选。 */
+/** 加载 SKU 与库存不足订单候选。 */
 async function loadOptions() {
-  const [suppliers, skus, warehouses, candidates] = await Promise.all([
-    getPartnerOptions(2),
+  const [skus, candidates] = await Promise.all([
     getSkuOptions(),
-    getWarehouseOptions(),
     getPurchaseCandidates()
   ])
-  supplierOptions.value = suppliers || []
   skuOptions.value = skus || []
-  warehouseOptions.value = warehouses || []
   purchaseCandidates.value = candidates || []
 
-  const warehouseId = Number(route.query.warehouse_id)
   const skuId = Number(route.query.sku_id)
   const count = Number(route.query.count)
-  if (warehouseId > 0) form.warehouse_id = warehouseId
   if (skuId > 0) {
     form.items = [{ sku_id: skuId, count: Number.isInteger(count) && count > 0 ? count : 1, price: 0 }]
   }

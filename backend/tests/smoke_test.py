@@ -18,7 +18,7 @@ smoke_test.db（已在 .gitignore 中忽略）。
      这两个都是 SQLite 特有问题，MySQL 下完全正常，不是项目代码的缺陷。
 
 覆盖范围：认证、基础数据 CRUD 与筛选、运营下单、接单预留、备货、发货实扣、
-出库单生成、库存流水、状态回传、确认完成、状态机拦截、权限校验、库存不足拦截、
+出库单生成、库存流水、发货即完成、状态机拦截、权限校验、库存不足拦截、
 采购全链路、Excel 导出。
 
 注意：SQLite 不支持 SELECT ... FOR UPDATE（SQLAlchemy 会静默忽略），
@@ -112,7 +112,6 @@ check("未带 token 被拒绝", body(r).get("code") == 401, str(body(r))[:80])
 # ---------------------------------------------------------------- 基础数据
 print("\n=== 4. 基础数据 ===")
 for name, path in [
-    ("仓库列表", "/api/warehouses"),
     ("商品列表", "/api/products"),
     ("SKU 列表", "/api/skus"),
     ("往来单位", "/api/partners"),
@@ -137,8 +136,7 @@ r = client.get("/api/skus/options", headers=admin_h)
 skus = body(r).get("data", [])
 check("SKU 下拉选项", len(skus) > 0, f"{len(skus)} 个")
 r = client.get("/api/warehouses/options", headers=admin_h)
-whs = body(r).get("data", [])
-check("仓库下拉选项", len(whs) > 0, f"{len(whs)} 个")
+check("仓库管理接口已下线", body(r).get("code") == 404, str(body(r))[:120])
 
 # ---------------------------------------------------------------- 运营下单
 print("\n=== 5. 运营下单 ===")
@@ -155,17 +153,15 @@ check("移库功能已移除", body(r).get("code") == 404, str(body(r))[:120])
 r = client.get("/api/stock-takes", headers=wh_h)
 check("盘点功能已移除", body(r).get("code") == 404, str(body(r))[:120])
 
-# 运营货号库存查询：仅展示货号资料和各仓库库存，不提供库存写入能力。
+# 运营货号库存查询：仅展示单仓库存余额，不提供库存写入能力。
 r = client.get("/api/item-query", params={"keyword": "SKU001"}, headers=op_h)
 item_rows = body(r).get("data", [])
 sku001 = next((item for item in item_rows if item.get("item_no") == "SKU001"), None)
 check(
-    "运营可查询货号及仓库库存",
+    "运营可查询货号库存",
     body(r).get("code") == 0
     and sku001 is not None
-    and isinstance(sku001.get("stocks"), list)
-    and {"warehouse_id", "warehouse_name", "quantity", "available_quantity"}
-    <= set((sku001.get("stocks") or [{}])[0].keys()),
+    and {"quantity", "available_quantity"} <= set(sku001.keys()),
     str(body(r))[:180],
 )
 r = client.get("/api/inventory", headers=op_h)
@@ -346,23 +342,24 @@ hist = body(r).get("data", {}).get("list", [])
 check("库存流水已写入", len(hist) > 0, f"{len(hist)} 条")
 check("流水含变动前后值", bool(hist) and hist[0].get("before_quantity") is not None, str(hist[0])[:150] if hist else "")
 
-# ---------------------------------------------------------------- 状态回传 + 确认
-print("\n=== 7. 状态回传与确认 ===")
+# ---------------------------------------------------------------- 发货即完成
+print("\n=== 7. 发货即完成（运营无需二次确认） ===")
 r = client.get("/api/sales-orders", headers=op_h)
 mine = next((o for o in body(r).get("data", {}).get("list", []) if o["id"] == order_id), None)
-check("运营能看到状态=40 已发货", mine and mine["status"] == 40, f"status={mine and mine['status']}")
+check("运营看到状态=50 已完成", mine and mine["status"] == 50, f"status={mine and mine['status']}")
+check("状态文案为已完成", mine and mine.get("status_text") == "已完成", str(mine)[:150])
 check("运营能看到物流单号", mine and mine.get("express_no") == "SF1234567890")
 
 r = client.post(f"/api/sales-orders/{order_id}/confirm", json={}, headers=op_h)
-check("运营确认完成", body(r).get("code") == 0, str(body(r))[:120])
+check("确认完成接口已下线", body(r).get("code") == 404, str(body(r))[:120])
 
-r = client.post(f"/api/sales-orders/{order_id}/confirm", json={}, headers=op_h)
-check("重复确认被拒（状态机生效）", body(r).get("code") == 1001, str(body(r))[:120])
+r = client.post(f"/api/warehouse/orders/{order_id}/ship", json={"express_no": "SF-AGAIN"}, headers=wh_h)
+check("重复发货被拒（状态机生效）", body(r).get("code") == 1001, str(body(r))[:120])
 
 # ---------------------------------------------------------------- 权限
 print("\n=== 8. 权限校验 ===")
 r = client.post("/api/warehouses", json={"code": "WH999", "name": "越权测试"}, headers=op_h)
-check("operator 不能建仓库", body(r).get("code") == 403, str(body(r))[:100])
+check("仓库创建接口已下线", body(r).get("code") == 404, str(body(r))[:100])
 
 r = client.post(
     "/api/sales-orders",
@@ -433,7 +430,7 @@ r = client.post(
     json={
         "supplier_id": sup[0]["id"] if sup else 3,
         "sales_order_id": big_order,
-        "warehouse_id": (candidate or {}).get("warehouse_id", 1),
+        "express_no": "SF-SMOKE-001",
         "remark": "缺货订单自动补货",
         "items": [
             {
@@ -456,7 +453,6 @@ if candidate_po_id:
     r = client.post(
         f"/api/purchase-orders/{candidate_po_id}/receive",
         json={
-            "warehouse_id": candidate_po.get("warehouse_id") or 1,
             "items": [
                 {"order_item_id": item["id"], "count": item["count"]}
                 for item in candidate_po_items
@@ -505,7 +501,6 @@ if po_items:
     r = client.post(
         f"/api/purchase-orders/{po_id}/receive",
         json={
-            "warehouse_id": 1,
             "remark": "全部到货",
             "items": [{"order_item_id": po_items[0]["id"], "count": 50}],
         },

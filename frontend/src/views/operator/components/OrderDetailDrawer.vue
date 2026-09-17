@@ -28,7 +28,6 @@
           <el-descriptions-item label="接单人">{{ detail.claimed_by_name || '未接单' }}</el-descriptions-item>
           <el-descriptions-item label="下单时间">{{ detail.created_at || '-' }}</el-descriptions-item>
           <el-descriptions-item label="发货时间">{{ detail.shipped_at || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="指派仓库">{{ detail.warehouse_name || '未指派' }}</el-descriptions-item>
           <el-descriptions-item label="备注">{{ detail.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 
@@ -169,7 +168,6 @@ function stepTime(index) {
     10: detail.value.created_at,
     20: detail.value.claimed_at,
     30: detail.value.prepare_at,
-    40: detail.value.shipped_at,
     50: detail.value.finished_at
   }
   return timeMap[ORDER_STEPS[index].status] || ''

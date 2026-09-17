@@ -1,7 +1,7 @@
 # 仓储管理系统 · 后端（一阶段）
 
 公司内部仓储管理系统后端服务。本阶段跑通**订单主链路**：
-运营下单 → 订单进入订单池 → 仓储接单 → 备货 → 发货 → 状态回传 → 运营确认完成。
+运营下单 → 订单进入订单池 → 仓储接单 → 备货 → 发货即完成。
 
 > 一阶段**不实现**库存扣减与采购逻辑；`inventory` / `inventory_history` 表已建好，库存查询接口只读。
 
@@ -144,7 +144,6 @@ python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | GET | `/api/sales-orders` | 订单列表 | 全部（可见性见下） |
 | GET | `/api/sales-orders/{id}` | 订单详情（含明细） | 全部（可见性见下） |
 | POST | `/api/sales-orders/{id}/cancel` | 取消订单 | operator（本人）/ warehouse / admin |
-| POST | `/api/sales-orders/{id}/confirm` | 确认完成 | operator（本人）/ admin |
 
 **可见性规则**：`operator` 只返回 `created_by = 当前用户` 的订单；`admin`、`warehouse` 返回全部。
 
@@ -194,7 +193,7 @@ python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## 八、订单状态机
 
 ```
-待接单(10) --仓储接单--> 已接单(20) --开始备货--> 备货中(30) --发货--> 已发货(40) --运营确认--> 已完成(50)
+待接单(10) --仓储接单--> 已接单(20) --开始备货--> 备货中(30) --发货--> 已完成(50)
      |                       |                      |
      +-----------------------+----------------------+--取消--> 已取消(90)
 ```
@@ -203,9 +202,8 @@ python3 -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 |---|---|---|---|
 | 接单 | 10 | 20 | warehouse / admin |
 | 备货 | 20 | 30 | warehouse / admin |
-| 发货 | 30 | 40 | warehouse / admin |
-| 确认完成 | 40 | 50 | operator（本人）/ admin |
-| 取消 | 10 / 20 / 30 | 90 | operator（本人）/ warehouse / admin |
+| 发货 | 30 | 50 | warehouse / admin |
+| 取消 | 10 / 20 / 25 / 30 | 90 | operator（本人）/ warehouse / admin |
 
 流转不合法时返回 `code = 1001`，`msg` 会带上当前状态中文名，例如：
 

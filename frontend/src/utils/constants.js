@@ -20,13 +20,12 @@ export const ROLE_OPTIONS = Object.entries(ROLE_MAP).map(([value, label]) => ({
   label
 }))
 
-/** 订单状态（契约 3.2） */
+/** 订单状态（契约 3.2）：发货即已完成，不再有「已发货」中间态 */
 export const ORDER_STATUS = {
   10: { label: '待接单', type: 'info' },
   20: { label: '已接单', type: 'primary' },
   25: { label: '数量待确认', type: 'warning' },
   30: { label: '备货中', type: 'primary' },
-  40: { label: '已发货', type: 'success' },
   50: { label: '已完成', type: 'success' },
   90: { label: '已取消', type: 'danger' }
 }
@@ -105,12 +104,11 @@ export const ORDER_TYPE_MAP = {
   ADJUST: '库存调整'
 }
 
-/** 订单状态时间线步骤（待接单 → 已接单 → 备货中 → 已发货 → 已完成） */
+/** 订单状态时间线步骤（待接单 → 已接单 → 备货中 → 已完成） */
 export const ORDER_STEPS = [
   { status: 10, label: '待接单' },
   { status: 20, label: '已接单' },
   { status: 30, label: '备货中' },
-  { status: 40, label: '已发货' },
   { status: 50, label: '已完成' }
 ]
 

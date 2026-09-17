@@ -13,7 +13,7 @@ from app.core.response import BizException, fail
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="公司内部仓储管理系统后端 · 一阶段：订单主链路（下单 / 接单 / 备货 / 发货 / 状态回传 / 确认完成）",
+    description="公司内部仓储管理系统后端 · 一阶段：订单主链路（下单 / 接单 / 备货 / 发货即完成）",
     docs_url="/docs",
     redoc_url="/redoc",
 )

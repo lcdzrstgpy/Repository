@@ -18,7 +18,7 @@ export function exportSkus() {
 
 /**
  * 导出库存（warehouse / admin）
- * @param {Object} params 支持 warehouse_id，传当前筛选条件
+ * @param {Object} params 当前筛选条件
  */
 export function exportInventory(params = {}) {
   return downloadFile('/api/export/inventory', params, '库存列表.xlsx')

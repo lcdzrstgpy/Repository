@@ -10,34 +10,24 @@
     <div v-loading="loading">
       <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
         <el-descriptions-item label="采购单号">{{ detail?.no || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="供应商">{{ detail?.supplier_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="采购快递单号">{{ detail?.express_no || '-' }}</el-descriptions-item>
         <el-descriptions-item label="关联销售订单">
           {{ detail?.sales_order_no || '无' }}
         </el-descriptions-item>
-        <el-descriptions-item label="期望到货">{{ detail?.expect_date || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="采购状态">{{ detail?.status_text || '-' }}</el-descriptions-item>
       </el-descriptions>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+      <el-form ref="formRef" :model="form" label-width="90px">
         <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="入库仓库" prop="warehouse_id">
-              <el-select
-                v-model="form.warehouse_id"
-                placeholder="请选择目标入库仓库"
-                filterable
-                :disabled="Boolean(detail?.warehouse_id)"
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="item in warehouseOptions"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
+          <el-col :span="24">
+            <el-form-item label="采购快递单号">
+              <el-input
+                v-model="form.express_no"
+                placeholder="选填，如：SF1234567890"
+                maxlength="64"
+                clearable
+              />
             </el-form-item>
-          </el-col>
-          <el-col :span="12">
             <el-form-item label="入库备注">
               <el-input
                 v-model="form.remark"
@@ -97,9 +87,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPurchaseDetail, receivePurchaseOrder } from '@/api/purchase'
-import { getWarehouseOptions } from '@/api/basic'
 import { formatCount } from '@/utils/format'
 
 const props = defineProps({
@@ -114,16 +103,11 @@ const submitting = ref(false)
 const formRef = ref(null)
 const detail = ref(null)
 const rows = ref([])
-const warehouseOptions = ref([])
 
 const form = reactive({
-  warehouse_id: null,
+  express_no: '',
   remark: ''
 })
-
-const rules = {
-  warehouse_id: [{ required: true, message: '请选择入库仓库', trigger: 'change' }]
-}
 
 /** 本次合计入库数量 */
 const totalReceiveCount = computed(() =>
@@ -136,7 +120,7 @@ async function loadDetail() {
   try {
     const data = await getPurchaseDetail(props.orderId)
     detail.value = data
-    form.warehouse_id = data?.warehouse_id || null
+    form.express_no = data?.express_no || ''
     rows.value = (data?.items || []).map((item) => {
       const count = Number(item.count) || 0
       const inCount = Number(item.in_count) || 0
@@ -191,11 +175,22 @@ async function handleSubmit() {
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
   if (!validateRows()) return
+  if (!form.express_no.trim()) {
+    try {
+      await ElMessageBox.confirm(
+        '未填写采购快递单号，确认仍要完成采购并入库吗？',
+        '确认无快递单号入库',
+        { type: 'warning', confirmButtonText: '确认完成', cancelButtonText: '返回填写' }
+      )
+    } catch (e) {
+      return
+    }
+  }
 
   submitting.value = true
   try {
     await receivePurchaseOrder(props.orderId, {
-      warehouse_id: form.warehouse_id,
+      express_no: form.express_no.trim() || null,
       remark: form.remark,
       items: rows.value
         .filter((row) => Number(row.receiveCount) > 0)
@@ -214,17 +209,13 @@ watch(
   () => [props.modelValue, props.orderId],
   async ([visible, id]) => {
     if (!visible || !id) return
-    form.warehouse_id = null
+    form.express_no = ''
     form.remark = ''
     await loadDetail()
   },
   { immediate: true }
 )
 
-// 仓库下拉只加载一次
-getWarehouseOptions().then((data) => {
-  warehouseOptions.value = data || []
-})
 </script>
 
 <style scoped>

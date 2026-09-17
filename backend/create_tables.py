@@ -76,6 +76,19 @@ def create_tables() -> None:
             if "warehouse_id" not in purchase_columns:
                 connection.execute(text("ALTER TABLE purchase_order ADD COLUMN warehouse_id BIGINT NULL"))
                 print("[升级] purchase_order 已新增 warehouse_id")
+            if "express_no" not in purchase_columns:
+                connection.execute(text("ALTER TABLE purchase_order ADD COLUMN express_no VARCHAR(64) NULL"))
+                print("[升级] purchase_order 已新增 express_no")
+            supplier_nullable = connection.execute(
+                text(
+                    "SELECT IS_NULLABLE FROM information_schema.COLUMNS "
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_order' "
+                    "AND COLUMN_NAME = 'supplier_id'"
+                )
+            ).scalar()
+            if supplier_nullable == "NO":
+                connection.execute(text("ALTER TABLE purchase_order MODIFY COLUMN supplier_id BIGINT NULL"))
+                print("[升级] purchase_order 已允许 supplier_id 为空")
     tables = ", ".join(sorted(Base.metadata.tables.keys()))
     print(f"[建表] 共 {len(Base.metadata.tables)} 张表：{tables}")
     engine.dispose()

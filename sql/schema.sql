@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS `partner` (
 CREATE TABLE IF NOT EXISTS `sales_order` (
   `id`            bigint        NOT NULL AUTO_INCREMENT              COMMENT '主键 ID',
   `no`            varchar(32)   NOT NULL                             COMMENT '运营录入的订单号（外部平台单号，唯一）',
-  `status`        tinyint       NOT NULL DEFAULT 10                  COMMENT '订单状态：10 待接单 / 20 已接单 / 30 备货中 / 40 已发货 / 50 已完成 / 90 已取消',
+  `status`        tinyint       NOT NULL DEFAULT 10                  COMMENT '订单状态：10 待接单 / 20 已接单 / 25 数量待确认 / 30 备货中 / 50 已完成（仓储发货即完成）/ 90 已取消',
   `audit_status`  tinyint       NOT NULL DEFAULT 0                   COMMENT '审批状态：0 未审批 / 1 已审批',
   `warehouse_id`  bigint        NULL     DEFAULT NULL                COMMENT '指派仓库 ID，接单时写入',
   `claimed_by`    bigint        NULL     DEFAULT NULL                COMMENT '接单人 user_id',

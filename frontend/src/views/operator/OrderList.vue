@@ -72,7 +72,7 @@
           <template #default="{ row }">{{ row.express_no || '-' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="下单时间" width="170" />
-        <el-table-column label="操作" width="310" fixed="right" align="center">
+        <el-table-column label="操作" width="240" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button
@@ -90,14 +90,6 @@
               @click="handleCancel(row)"
             >
               取消订单
-            </el-button>
-            <el-button
-              link
-              type="success"
-              :disabled="row.status !== 40"
-              @click="handleConfirm(row)"
-            >
-              确认完成
             </el-button>
           </template>
         </el-table-column>
@@ -126,7 +118,7 @@
 import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderList, cancelOrder, confirmOrder } from '@/api/order'
+import { getOrderList, cancelOrder } from '@/api/order'
 import { exportSalesOrders } from '@/api/export'
 import {
   ORDER_STATUS_OPTIONS,
@@ -255,23 +247,6 @@ async function handleCancel(row) {
 
   await cancelOrder(row.id, reason)
   ElMessage.success('订单已取消')
-  load()
-}
-
-/** 确认完成：仅已发货状态可用 */
-async function handleConfirm(row) {
-  try {
-    await ElMessageBox.confirm(`确认订单「${row.no}」已完成收货吗？`, '确认完成', {
-      type: 'warning',
-      confirmButtonText: '确认完成',
-      cancelButtonText: '取消'
-    })
-  } catch (e) {
-    return
-  }
-
-  await confirmOrder(row.id)
-  ElMessage.success('订单已完成')
   load()
 }
 

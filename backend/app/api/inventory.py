@@ -19,6 +19,7 @@ from app.services.inventory_service import (
     ORDER_TYPE_ADJUST,
     ORDER_TYPE_PURCHASE_IN,
     change_inventory,
+    default_warehouse_id,
     order_type_text,
 )
 
@@ -51,7 +52,6 @@ def _history_out(
 def list_inventory(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
-    warehouse_id: int | None = Query(None, description="按仓库筛选"),
     keyword: str | None = Query(None, description="SKU 编码 / 商品名称 / 规格"),
     db: Session = Depends(get_db),
     _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
@@ -59,9 +59,8 @@ def list_inventory(
     """库存余额列表，available_quantity = quantity - reserved_quantity。"""
     page, page_size = normalize_page(page, page_size)
 
-    inventory_join = ProductSku.id == Inventory.sku_id
-    if warehouse_id is not None:
-        inventory_join = and_(inventory_join, Inventory.warehouse_id == warehouse_id)
+    warehouse_id = default_warehouse_id(db)
+    inventory_join = and_(ProductSku.id == Inventory.sku_id, Inventory.warehouse_id == warehouse_id)
     joins = (
         select(ProductSku, Product, Inventory, Warehouse)
         .outerjoin(Product, Product.id == ProductSku.product_id)
@@ -106,8 +105,6 @@ def list_inventory(
             "sku_status": int(sku.status),
             "product_name": product.name if product else None,
             "spec": sku.spec,
-            "warehouse_id": warehouse_id,
-            "warehouse_name": None,
             "quantity": 0.0,
             "reserved_quantity": 0.0,
             "available_quantity": 0.0,
@@ -121,7 +118,6 @@ def list_inventory(
 def list_inventory_alerts(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
-    warehouse_id: int | None = Query(None, description="按仓库筛选"),
     db: Session = Depends(get_db),
     _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
@@ -132,9 +128,8 @@ def list_inventory_alerts(
     """
     page, page_size = normalize_page(page, page_size)
 
-    inventory_join = ProductSku.id == Inventory.sku_id
-    if warehouse_id is not None:
-        inventory_join = and_(inventory_join, Inventory.warehouse_id == warehouse_id)
+    warehouse_id = default_warehouse_id(db)
+    inventory_join = and_(ProductSku.id == Inventory.sku_id, Inventory.warehouse_id == warehouse_id)
 
     available = func.coalesce(Inventory.quantity, 0) - func.coalesce(Inventory.reserved_quantity, 0)
     shortage = ProductSku.min_stock - available
@@ -178,8 +173,6 @@ def list_inventory_alerts(
                 "sku_status": int(sku.status),
                 "product_name": product.name if product else None,
                 "spec": sku.spec,
-                "warehouse_id": warehouse_id,
-                "warehouse_name": None,
                 "quantity": 0.0,
                 "reserved_quantity": 0.0,
                 "available_quantity": 0.0,
@@ -197,7 +190,6 @@ def list_inventory_history(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
     sku_id: int | None = Query(None, description="按 SKU 筛选"),
-    warehouse_id: int | None = Query(None, description="按仓库筛选"),
     db: Session = Depends(get_db),
     _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
@@ -207,8 +199,7 @@ def list_inventory_history(
     conditions = []
     if sku_id is not None:
         conditions.append(InventoryHistory.sku_id == sku_id)
-    if warehouse_id is not None:
-        conditions.append(InventoryHistory.warehouse_id == warehouse_id)
+    conditions.append(InventoryHistory.warehouse_id == default_warehouse_id(db))
 
     total = db.scalar(
         select(func.count()).select_from(InventoryHistory).where(*conditions)
@@ -273,14 +264,13 @@ def adjust_inventory(
     sku = db.get(ProductSku, payload.sku_id)
     if sku is None:
         raise BizException("SKU 不存在")
-    warehouse = db.get(Warehouse, payload.warehouse_id)
-    if warehouse is None:
-        raise BizException("仓库不存在")
+    warehouse_id = default_warehouse_id(db)
+    warehouse = db.get(Warehouse, warehouse_id)
 
     inventory = db.scalar(
         select(Inventory).where(
             Inventory.sku_id == payload.sku_id,
-            Inventory.warehouse_id == payload.warehouse_id,
+            Inventory.warehouse_id == warehouse_id,
         )
     )
     before = Decimal(inventory.quantity or 0) if inventory is not None else Decimal("0.00")
@@ -293,7 +283,7 @@ def adjust_inventory(
             [
                 {
                     "sku_id": payload.sku_id,
-                    "warehouse_id": payload.warehouse_id,
+                    "warehouse_id": warehouse_id,
                     "quantity": diff,
                 }
             ],
@@ -309,7 +299,7 @@ def adjust_inventory(
         inventory = db.scalar(
             select(Inventory).where(
                 Inventory.sku_id == payload.sku_id,
-                Inventory.warehouse_id == payload.warehouse_id,
+                Inventory.warehouse_id == warehouse_id,
             )
         )
 
@@ -336,14 +326,13 @@ def inbound_inventory(
         raise BizException("货号不存在")
     if sku.status != 1:
         raise BizException("货号已停用，无法采购入库")
-    warehouse = db.get(Warehouse, payload.warehouse_id)
-    if warehouse is None:
-        raise BizException("仓库不存在")
+    warehouse_id = default_warehouse_id(db)
+    warehouse = db.get(Warehouse, warehouse_id)
 
     quantity = Decimal(payload.quantity)
     change_inventory(
         db,
-        [{"sku_id": sku.id, "warehouse_id": warehouse.id, "quantity": quantity}],
+        [{"sku_id": sku.id, "warehouse_id": warehouse_id, "quantity": quantity}],
         "PIN" + datetime.now().strftime("%Y%m%d%H%M%S%f"),
         ORDER_TYPE_PURCHASE_IN,
         current_user.id,

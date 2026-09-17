@@ -16,7 +16,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
-            placeholder="采购单号 / 供应商名称"
+            placeholder="采购单号 / 快递单号"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -59,12 +59,11 @@
 
         <el-table v-loading="loading" :data="list" border stripe>
           <el-table-column prop="no" label="采购单号" width="170" />
-          <el-table-column prop="supplier_name" label="供应商" min-width="150" show-overflow-tooltip />
           <el-table-column prop="sales_order_no" label="关联销售订单号" width="170">
             <template #default="{ row }">{{ row.sales_order_no || '-' }}</template>
           </el-table-column>
-          <el-table-column prop="warehouse_name" label="目标入库仓库" width="140">
-            <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
+          <el-table-column prop="express_no" label="采购快递单号" width="170">
+            <template #default="{ row }">{{ row.express_no || '-' }}</template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="100" align="center">
             <template #default="{ row }">
@@ -78,9 +77,6 @@
           </el-table-column>
           <el-table-column prop="total_price" label="金额" width="120" align="right">
             <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
-          </el-table-column>
-          <el-table-column prop="expect_date" label="期望到货" width="120">
-            <template #default="{ row }">{{ row.expect_date || '-' }}</template>
           </el-table-column>
           <el-table-column prop="created_by_name" label="创建人" width="110">
             <template #default="{ row }">{{ row.created_by_name || '-' }}</template>
@@ -140,9 +136,6 @@
           <el-table-column prop="no" label="入库单号" width="170" />
           <el-table-column prop="order_no" label="关联采购单号" width="170">
             <template #default="{ row }">{{ row.order_no || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="warehouse_name" label="入库仓库" width="130">
-            <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="100" align="center">
             <template #default="{ row }">

@@ -28,7 +28,6 @@
           </el-descriptions-item>
           <el-descriptions-item label="下单人">{{ detail.created_by_name || '-' }}</el-descriptions-item>
           <el-descriptions-item label="接单人">{{ detail.claimed_by_name || '未接单' }}</el-descriptions-item>
-          <el-descriptions-item label="指派仓库">{{ detail.warehouse_name || '未指派' }}</el-descriptions-item>
           <el-descriptions-item label="下单时间">{{ detail.created_at || '-' }}</el-descriptions-item>
           <el-descriptions-item label="备注" :span="2">{{ detail.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
@@ -160,31 +159,14 @@
       </template>
     </el-dialog>
 
-    <!-- 接单：在详情抽屉内完成仓库选择，无需返回列表 -->
+    <!-- 接单确认 -->
     <el-dialog
       v-model="claimVisible"
       title="接单并关联货号"
       width="460px"
       append-to-body
-      @closed="handleClaimDialogClosed"
     >
-      <el-form ref="claimFormRef" :model="claimForm" :rules="claimRules" label-width="80px">
-        <el-form-item label="仓库" prop="warehouse_id">
-          <el-select
-            v-model="claimForm.warehouse_id"
-            placeholder="请选择接单仓库"
-            filterable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <p class="text-muted">确认接单后即可在当前订单中关联或新建货号。</p>
 
       <template #footer>
         <el-button @click="claimVisible = false">取消</el-button>
@@ -198,7 +180,6 @@
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getOrderDetail } from '@/api/order'
-import { getWarehouseOptions } from '@/api/basic'
 import { bindSku, claimOrder } from '@/api/warehouse'
 import { orderStatusType, orderStatusLabel } from '@/utils/constants'
 import { formatAmount, formatCount } from '@/utils/format'
@@ -225,12 +206,6 @@ const newSkuRules = {
 }
 
 const claimVisible = ref(false)
-const claimFormRef = ref(null)
-const warehouseOptions = ref([])
-const claimForm = reactive({ warehouse_id: null })
-const claimRules = {
-  warehouse_id: [{ required: true, message: '请选择接单仓库', trigger: 'change' }]
-}
 
 const itemCount = computed(() => (detail.value?.items || []).length)
 const canClaim = computed(() => detail.value?.status === 10)
@@ -259,25 +234,13 @@ async function load() {
 
 /** 详情抽屉内接单：成功后保持抽屉打开，直接进入货号处理。 */
 async function openClaim() {
-  if (!warehouseOptions.value.length) {
-    warehouseOptions.value = (await getWarehouseOptions()) || []
-  }
-  claimForm.warehouse_id = null
   claimVisible.value = true
-  nextTick(() => claimFormRef.value?.clearValidate())
-}
-
-function handleClaimDialogClosed() {
-  claimFormRef.value?.clearValidate()
 }
 
 async function handleClaim() {
-  const valid = await claimFormRef.value.validate().catch(() => false)
-  if (!valid) return
-
   claiming.value = true
   try {
-    await claimOrder(detail.value.id, claimForm.warehouse_id)
+    await claimOrder(detail.value.id)
     claimVisible.value = false
     await load()
     ElMessage.success('接单成功，请在当前详情中完成货号关联')

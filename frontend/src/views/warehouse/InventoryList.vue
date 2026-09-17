@@ -4,22 +4,6 @@
       <div class="module-purpose">货号库存 / 自动生成货号</div>
       <WarehouseInventoryTabs class="tabs" />
       <el-form :model="query" inline>
-        <el-form-item label="仓库">
-          <el-select
-            v-model="query.warehouse_id"
-            placeholder="全部仓库"
-            clearable
-            filterable
-            style="width: 180px"
-          >
-            <el-option
-              v-for="item in warehouseOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
@@ -70,7 +54,6 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="warehouse_name" label="仓库" width="130" />
         <el-table-column prop="quantity" label="库存数量" width="110" align="right">
           <template #default="{ row }">{{ formatCount(row.quantity) }}</template>
         </el-table-column>
@@ -86,8 +69,8 @@
         </el-table-column>
         <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button v-if="row.warehouse_id" link type="primary" @click="openHistory(row)">库存流水</el-button>
-            <el-button v-if="canAdjust && row.warehouse_id" link type="warning" @click="openAdjust(row)">
+            <el-button link type="primary" @click="openHistory(row)">库存流水</el-button>
+            <el-button v-if="canAdjust" link type="warning" @click="openAdjust(row)">
               调整库存
             </el-button>
             <el-button v-if="canAdjust" link :type="row.sku_status === 1 ? 'danger' : 'success'" @click="toggleItemStatus(row)">
@@ -135,11 +118,6 @@
             <el-option v-for="item in skuOptions" :key="item.id" :value="item.id" :label="`${item.sku_code} · ${item.name}${item.spec ? ' / ' + item.spec : ''}`" />
           </el-select>
         </el-form-item>
-        <el-form-item label="仓库" prop="warehouse_id">
-          <el-select v-model="inboundForm.warehouse_id" filterable placeholder="请选择仓库" style="width: 100%">
-            <el-option v-for="item in warehouseOptions" :key="item.id" :value="item.id" :label="item.name" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="入库数量" prop="quantity">
           <el-input-number v-model="inboundForm.quantity" :min="1" :precision="0" :step="1" controls-position="right" style="width: 100%" />
         </el-form-item>
@@ -159,7 +137,6 @@
         <el-descriptions-item label="货号">{{ currentRow?.sku_code }}</el-descriptions-item>
         <el-descriptions-item label="商品名称">{{ currentRow?.product_name }}</el-descriptions-item>
         <el-descriptions-item label="规格">{{ currentRow?.spec || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="仓库">{{ currentRow?.warehouse_name }}</el-descriptions-item>
       </el-descriptions>
 
       <el-table v-loading="historyLoading" :data="historyList" border size="small" max-height="360">
@@ -215,7 +192,6 @@
       <el-descriptions v-if="adjustRow" :column="1" border size="small" style="margin-bottom: 16px">
         <el-descriptions-item label="货号">{{ adjustRow.sku_code }}</el-descriptions-item>
         <el-descriptions-item label="商品名称">{{ adjustRow.product_name }}</el-descriptions-item>
-        <el-descriptions-item label="仓库">{{ adjustRow.warehouse_name }}</el-descriptions-item>
         <el-descriptions-item label="当前库存">
           {{ formatCount(adjustRow.quantity) }}
         </el-descriptions-item>
@@ -257,7 +233,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getInventoryList, getInventoryHistory } from '@/api/inventory'
 import { adjustInventory, inboundInventory } from '@/api/stock'
-import { getSkuOptions, getWarehouseOptions } from '@/api/basic'
+import { getSkuOptions } from '@/api/basic'
 import { exportInventory } from '@/api/export'
 import { useUserStore } from '@/stores/user'
 import { orderTypeLabel } from '@/utils/constants'
@@ -274,13 +250,11 @@ const canAdjust = computed(() => ['warehouse', 'admin'].includes(userStore.role)
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
-const warehouseOptions = ref([])
 const skuOptions = ref([])
 
 const query = reactive({
   page: 1,
   page_size: 20,
-  warehouse_id: '',
   keyword: ''
 })
 
@@ -307,10 +281,9 @@ const adjustRules = {
 const inboundVisible = ref(false)
 const inboundSubmitting = ref(false)
 const inboundFormRef = ref(null)
-const inboundForm = reactive({ sku_id: null, warehouse_id: null, quantity: 1, remark: '' })
+const inboundForm = reactive({ sku_id: null, quantity: 1, remark: '' })
 const inboundRules = {
   sku_id: [{ required: true, message: '请选择货号', trigger: 'change' }],
-  warehouse_id: [{ required: true, message: '请选择仓库', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入入库数量', trigger: 'blur' }]
 }
 
@@ -328,9 +301,6 @@ async function load() {
   loading.value = true
   try {
     const params = { page: query.page, page_size: query.page_size }
-    if (query.warehouse_id !== '' && query.warehouse_id !== null) {
-      params.warehouse_id = query.warehouse_id
-    }
     if (query.keyword) params.keyword = query.keyword.trim()
 
     const data = await getInventoryList(params)
@@ -347,7 +317,6 @@ function handleSearch() {
 }
 
 function handleReset() {
-  query.warehouse_id = ''
   query.keyword = ''
   query.page = 1
   load()
@@ -367,16 +336,12 @@ function handlePageChange(page) {
 // ---------- 导出 Excel ----------
 const exporting = ref(false)
 
-/** 导出库存：带上当前筛选条件（warehouse_id） */
+/** 导出当前库存。 */
 async function handleExport() {
   if (exporting.value) return
   exporting.value = true
   try {
-    const params = {}
-    if (query.warehouse_id !== '' && query.warehouse_id !== null) {
-      params.warehouse_id = query.warehouse_id
-    }
-    const fileName = await exportInventory(params)
+    const fileName = await exportInventory({})
     ElMessage.success(`已导出「${fileName}」`)
   } catch (e) {
     // download.js 内部已弹出错误提示，这里不再重复提示
@@ -392,8 +357,7 @@ async function loadHistory() {
     const data = await getInventoryHistory({
       page: historyQuery.page,
       page_size: historyQuery.page_size,
-      sku_id: currentRow.value.sku_id,
-      warehouse_id: currentRow.value.warehouse_id
+      sku_id: currentRow.value.sku_id
     })
     historyList.value = data?.list || []
     historyTotal.value = data?.total || 0
@@ -485,7 +449,6 @@ async function toggleItemStatus(row) {
 
 function openInbound() {
   inboundForm.sku_id = null
-  inboundForm.warehouse_id = query.warehouse_id || null
   inboundForm.quantity = 1
   inboundForm.remark = ''
   inboundVisible.value = true
@@ -516,7 +479,7 @@ async function handleAdjust() {
 
   try {
     await ElMessageBox.confirm(
-      `确认将「${adjustRow.value.sku_code}」在「${adjustRow.value.warehouse_name}」的库存由 ${formatCount(
+      `确认将「${adjustRow.value.sku_code}」的库存由 ${formatCount(
         adjustRow.value.quantity
       )} 调整为 ${formatCount(adjustForm.quantity)} 吗？`,
       '调整库存',
@@ -530,7 +493,6 @@ async function handleAdjust() {
   try {
     await adjustInventory({
       sku_id: adjustRow.value.sku_id,
-      warehouse_id: adjustRow.value.warehouse_id,
       quantity: Number(adjustForm.quantity),
       remark: adjustForm.remark.trim()
     })
@@ -544,7 +506,6 @@ async function handleAdjust() {
 
 onMounted(async () => {
   load()
-  warehouseOptions.value = (await getWarehouseOptions()) || []
   skuOptions.value = (await getSkuOptions()) || []
 })
 </script>

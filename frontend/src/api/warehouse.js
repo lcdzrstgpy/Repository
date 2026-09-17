@@ -10,11 +10,9 @@ export function getPendingOrders(params) {
   return request.get('/api/warehouse/pending-orders', { params })
 }
 
-/** 待备货订单按仓库、货号汇总的采购需求。 */
-export function getPurchaseSummary(warehouseId) {
-  return request.get('/api/warehouse/purchase-summary', {
-    params: warehouseId ? { warehouse_id: warehouseId } : {}
-  })
+/** 待备货订单按货号汇总的采购需求。 */
+export function getPurchaseSummary() {
+  return request.get('/api/warehouse/purchase-summary')
 }
 
 /** 备货中订单：按可完整发货优先级排序。 */
@@ -35,8 +33,8 @@ export function updateItemNumberStatus(id, status) {
 }
 
 /** 接单（仅 status 10，成功后 status = 20） */
-export function claimOrder(id, warehouseId) {
-  return request.post(`/api/warehouse/orders/${id}/claim`, { warehouse_id: warehouseId })
+export function claimOrder(id) {
+  return request.post(`/api/warehouse/orders/${id}/claim`, {})
 }
 
 /**
@@ -52,7 +50,7 @@ export function bindSku(orderId, payload) {
   return request.post(`/api/warehouse/orders/${orderId}/bind-sku`, payload)
 }
 
-/** 发货（仅 status 30，成功后 status = 40，回传点） */
+/** 发货（仅 status 30，成功后 status = 50 已完成：发完即终态，运营无需再确认） */
 export function shipOrder(id, expressNo) {
   return request.post(`/api/warehouse/orders/${id}/ship`, { express_no: expressNo })
 }

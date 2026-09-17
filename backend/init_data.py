@@ -293,7 +293,7 @@ def init_demo_orders(
     skus: dict[str, ProductSku],
     warehouses: dict[str, Warehouse],
 ) -> None:
-    """本地演示订单：覆盖仓储的待接单、待关联、备货、已发货与已完成状态。"""
+    """本地演示订单：覆盖仓储的待接单、待关联、备货与已完成状态。"""
     operator = users["operator1"]
     warehouse_user = users["warehouse1"]
     main = warehouses["WH001"]
@@ -308,7 +308,7 @@ def init_demo_orders(
             warehouse_user,
             [("商品A", "SKU001", 0, 130, "25.00"), ("商品B", "SKU002", 0, 25, "18.50")],
         ),
-        ("DEMO-SHIPPED-001", 40, main, warehouse_user, [("商品C", "SKU003", 0, 4, "99.00")]),
+        ("DEMO-SHIPPED-001", 50, main, warehouse_user, [("商品C", "SKU003", 0, 4, "99.00")]),
         ("DEMO-FINISHED-001", 50, main, warehouse_user, [("商品B", "SKU002", 0, 3, "18.50")]),
     ]
     created = 0
@@ -325,9 +325,9 @@ def init_demo_orders(
             claimed_by=claimed_by.id if claimed_by else None,
             claimed_at=now if claimed_by else None,
             prepare_at=now if status >= 30 else None,
-            shipped_at=now if status >= 40 else None,
+            shipped_at=now if status == 50 else None,
             finished_at=now if status == 50 else None,
-            express_no="SF-DEMO-001" if status == 40 else None,
+            express_no="SF-DEMO-001" if status == 50 else None,
             remark="本地测试演示订单",
             total_count=total_count,
             total_price=total_price,
@@ -345,7 +345,7 @@ def init_demo_orders(
                     is_new=is_new,
                     sku_id=sku.id if sku else None,
                     count=Decimal(count),
-                    out_count=Decimal(count) if status >= 40 else Decimal("0"),
+                    out_count=Decimal(count) if status == 50 else Decimal("0"),
                     expect_price=Decimal(price),
                     total_price=Decimal(count) * Decimal(price),
                 )

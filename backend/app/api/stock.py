@@ -18,8 +18,8 @@ from app.core.response import BizException, NotFoundException, normalize_page, o
 from app.core.security import require_roles
 from app.models.basic import Product, ProductSku, Warehouse
 from app.models.order import (
+    ORDER_STATUS_FINISHED,
     ORDER_STATUS_PREPARING,
-    ORDER_STATUS_SHIPPED,
     SalesOrder,
     SalesOrderItem,
     status_text,
@@ -293,7 +293,7 @@ def cancel_sales_out(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
-    """作废出库单：反向回滚库存，关联订单从「已发货」退回「备货中」。
+    """作废出库单：反向回滚库存，关联订单从「已完成」退回「备货中」。
 
     四阶段（契约 12.2）：发货时预留已随「预留转实扣」释放，作废只回滚实扣的
     `quantity`。但订单退回「备货中(30)」后还要能再次发货，而「发货」会释放预留——
@@ -325,7 +325,9 @@ def cancel_sales_out(
     )
 
     # 先校验订单状态，避免回滚了库存才发现订单退不回去
-    if order is not None and order.status != ORDER_STATUS_SHIPPED:
+    # 发货即完成，故正常情况订单为「已完成(50)」；改造前遗留的「已发货(40)」
+    # 在存量数据刷成 50 之前同样放行。
+    if order is not None and order.status not in (ORDER_STATUS_FINISHED, 40):
         raise BizException(
             f"订单当前状态为「{status_text(order.status)}」，无法作废出库单"
         )
@@ -352,6 +354,7 @@ def cancel_sales_out(
     if order is not None:
         order.status = ORDER_STATUS_PREPARING
         order.shipped_at = None
+        order.finished_at = None
         order.express_no = None
         for item in items:
             if not item.order_item_id:

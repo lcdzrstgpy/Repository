@@ -45,8 +45,3 @@ export function cancelOrder(id, cancelReason) {
 export function confirmQuantity(orderId, payload) {
   return request.post(`/api/sales-orders/${orderId}/confirm-quantity`, payload)
 }
-
-/** 确认完成（仅 status 40） */
-export function confirmOrder(id) {
-  return request.post(`/api/sales-orders/${id}/confirm`, {})
-}

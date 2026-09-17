@@ -58,8 +58,9 @@ class PurchaseOrder(Base, TimestampMixin):
     no: Mapped[str] = mapped_column(
         String(32), unique=True, nullable=False, comment="单号 PO+yyyyMMdd+4位流水"
     )
-    supplier_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("partner.id"), nullable=False, index=True, comment="供应商 partner.id（type 含 2）"
+    # 单仓小型团队不维护供应商档案；保留该历史列，兼容已有采购单数据。
+    supplier_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("partner.id"), nullable=True, index=True, comment="历史供应商 partner.id"
     )
     sales_order_id: Mapped[int | None] = mapped_column(
         BigInteger,
@@ -89,6 +90,9 @@ class PurchaseOrder(Base, TimestampMixin):
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="总金额（明细汇总）"
     )
     expect_date: Mapped[date | None] = mapped_column(Date, nullable=True, comment="期望到货日期")
+    express_no: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="采购快递单号"
+    )
     remark: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="备注")
     created_by: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("sys_user.id"), nullable=False, index=True, comment="创建人 user_id"

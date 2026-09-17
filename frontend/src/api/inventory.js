@@ -17,7 +17,7 @@ export function getInventoryHistory(params) {
 
 /**
  * 库存预警列表（契约 18.3）
- * 支持 ?page=&page_size=&warehouse_id=
+ * 支持 ?page=&page_size=
  * 筛选：min_stock > 0 且 可用量 < min_stock，按短缺量从大到小
  */
 export function getInventoryAlerts(params) {
