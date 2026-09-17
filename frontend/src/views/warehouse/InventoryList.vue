@@ -1,6 +1,8 @@
 <template>
   <div class="page-container">
     <el-card shadow="never" class="search-card">
+      <div class="module-purpose">货号库存 / 自动生成货号</div>
+      <WarehouseInventoryTabs class="tabs" />
       <el-form :model="query" inline>
         <el-form-item label="仓库">
           <el-select
@@ -21,7 +23,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
-            placeholder="SKU 编码 / 商品名称"
+            placeholder="货号 / 商品名称"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -44,6 +46,8 @@
       <div class="table-toolbar">
         <span class="text-muted">共 {{ total }} 条库存记录</span>
         <div>
+          <el-button v-if="canAdjust" @click="openCreateItem">自动生成货号</el-button>
+          <el-button v-if="canAdjust" type="primary" @click="openInbound">采购入库</el-button>
           <el-button v-if="canExport" :loading="exporting" @click="handleExport">
             <el-icon><Download /></el-icon>
             <span style="margin-left: 4px">导出 Excel</span>
@@ -56,9 +60,16 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="sku_code" label="SKU 编码" width="130" />
+        <el-table-column prop="sku_code" label="货号" width="130" />
         <el-table-column prop="product_name" label="商品名称" min-width="160" show-overflow-tooltip />
         <el-table-column prop="spec" label="规格" min-width="140" show-overflow-tooltip />
+        <el-table-column label="状态" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.sku_status === 1 ? 'success' : 'info'" size="small">
+              {{ row.sku_status === 1 ? '启用' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="warehouse_name" label="仓库" width="130" />
         <el-table-column prop="quantity" label="库存数量" width="110" align="right">
           <template #default="{ row }">{{ formatCount(row.quantity) }}</template>
@@ -73,11 +84,14 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right" align="center">
+        <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openHistory(row)">库存流水</el-button>
-            <el-button v-if="userStore.isAdmin" link type="warning" @click="openAdjust(row)">
+            <el-button v-if="row.warehouse_id" link type="primary" @click="openHistory(row)">库存流水</el-button>
+            <el-button v-if="canAdjust && row.warehouse_id" link type="warning" @click="openAdjust(row)">
               调整库存
+            </el-button>
+            <el-button v-if="canAdjust" link :type="row.sku_status === 1 ? 'danger' : 'success'" @click="toggleItemStatus(row)">
+              {{ row.sku_status === 1 ? '停用' : '启用' }}
             </el-button>
           </template>
         </el-table-column>
@@ -97,10 +111,52 @@
       </div>
     </el-card>
 
+    <el-dialog v-model="createItemVisible" title="自动生成货号" width="520px" @closed="handleCreateItemClosed">
+      <el-alert type="info" :closable="false" show-icon title="填写三级分类后自动生成 A001-B001-C001 格式货号；货号生成后不可修改。" style="margin-bottom: 16px" />
+      <el-form ref="createItemFormRef" :model="createItemForm" :rules="createItemRules" label-width="95px">
+        <el-form-item label="商品名称" prop="product_name"><el-input v-model="createItemForm.product_name" placeholder="如：玻璃杯" /></el-form-item>
+        <el-form-item label="一级分类" prop="category_level1"><el-input v-model="createItemForm.category_level1" placeholder="如：杯子" /></el-form-item>
+        <el-form-item label="二级分类"><el-input v-model="createItemForm.category_level2" placeholder="如：玻璃杯（选填）" /></el-form-item>
+        <el-form-item label="三级分类"><el-input v-model="createItemForm.category_level3" placeholder="如：400ml（选填）" /></el-form-item>
+        <el-form-item label="规格"><el-input v-model="createItemForm.spec" placeholder="如：透明/400ml（选填）" /></el-form-item>
+        <el-form-item label="售价"><el-input-number v-model="createItemForm.price" :min="0" :precision="2" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createItemVisible = false">取消</el-button>
+        <el-button type="primary" :loading="createItemSubmitting" @click="handleCreateItem">生成并确认</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="inboundVisible" title="采购入库" width="500px" @closed="handleInboundClosed">
+      <el-alert type="info" :closable="false" show-icon title="用于提前备货或采购到货；本次数量会直接增加库存并写入库存流水。" style="margin-bottom: 16px" />
+      <el-form ref="inboundFormRef" :model="inboundForm" :rules="inboundRules" label-width="90px">
+        <el-form-item label="货号" prop="sku_id">
+          <el-select v-model="inboundForm.sku_id" filterable placeholder="请选择货号" style="width: 100%">
+            <el-option v-for="item in skuOptions" :key="item.id" :value="item.id" :label="`${item.sku_code} · ${item.name}${item.spec ? ' / ' + item.spec : ''}`" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="仓库" prop="warehouse_id">
+          <el-select v-model="inboundForm.warehouse_id" filterable placeholder="请选择仓库" style="width: 100%">
+            <el-option v-for="item in warehouseOptions" :key="item.id" :value="item.id" :label="item.name" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="入库数量" prop="quantity">
+          <el-input-number v-model="inboundForm.quantity" :min="0.01" :precision="2" :step="1" controls-position="right" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="inboundForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="如：提前备货、采购到货" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="inboundVisible = false">取消</el-button>
+        <el-button type="primary" :loading="inboundSubmitting" @click="handleInbound">确认入库</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 库存流水弹窗 -->
     <el-dialog v-model="historyVisible" title="库存流水" width="900px" @closed="handleHistoryClosed">
       <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
-        <el-descriptions-item label="SKU 编码">{{ currentRow?.sku_code }}</el-descriptions-item>
+        <el-descriptions-item label="货号">{{ currentRow?.sku_code }}</el-descriptions-item>
         <el-descriptions-item label="商品名称">{{ currentRow?.product_name }}</el-descriptions-item>
         <el-descriptions-item label="规格">{{ currentRow?.spec || '-' }}</el-descriptions-item>
         <el-descriptions-item label="仓库">{{ currentRow?.warehouse_name }}</el-descriptions-item>
@@ -149,7 +205,7 @@
       </div>
     </el-dialog>
 
-    <!-- 库存调整弹窗：仅管理员可见，quantity 为目标值 -->
+    <!-- 库存调整弹窗：仓储、管理员可用，quantity 为目标值 -->
     <el-dialog
       v-model="adjustVisible"
       title="调整库存"
@@ -157,7 +213,7 @@
       @closed="handleAdjustClosed"
     >
       <el-descriptions v-if="adjustRow" :column="1" border size="small" style="margin-bottom: 16px">
-        <el-descriptions-item label="SKU 编码">{{ adjustRow.sku_code }}</el-descriptions-item>
+        <el-descriptions-item label="货号">{{ adjustRow.sku_code }}</el-descriptions-item>
         <el-descriptions-item label="商品名称">{{ adjustRow.product_name }}</el-descriptions-item>
         <el-descriptions-item label="仓库">{{ adjustRow.warehouse_name }}</el-descriptions-item>
         <el-descriptions-item label="当前库存">
@@ -200,22 +256,26 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getInventoryList, getInventoryHistory } from '@/api/inventory'
-import { adjustInventory } from '@/api/stock'
-import { getWarehouseOptions } from '@/api/basic'
+import { adjustInventory, inboundInventory } from '@/api/stock'
+import { getSkuOptions, getWarehouseOptions } from '@/api/basic'
 import { exportInventory } from '@/api/export'
 import { useUserStore } from '@/stores/user'
 import { orderTypeLabel } from '@/utils/constants'
 import { formatCount } from '@/utils/format'
+import { createItemNumber, updateItemNumberStatus } from '@/api/warehouse'
+import WarehouseInventoryTabs from './components/WarehouseInventoryTabs.vue'
 
 const userStore = useUserStore()
 
 /** 导出库存角色：warehouse / admin（契约 15） */
 const canExport = computed(() => ['warehouse', 'admin'].includes(userStore.role))
+const canAdjust = computed(() => ['warehouse', 'admin'].includes(userStore.role))
 
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
 const warehouseOptions = ref([])
+const skuOptions = ref([])
 
 const query = reactive({
   page: 1,
@@ -242,6 +302,26 @@ const adjustForm = reactive({ quantity: 0, remark: '' })
 const adjustRules = {
   quantity: [{ required: true, message: '请输入目标数量', trigger: 'blur' }],
   remark: [{ required: true, message: '请填写调整备注', trigger: 'blur' }]
+}
+
+const inboundVisible = ref(false)
+const inboundSubmitting = ref(false)
+const inboundFormRef = ref(null)
+const inboundForm = reactive({ sku_id: null, warehouse_id: null, quantity: 1, remark: '' })
+const inboundRules = {
+  sku_id: [{ required: true, message: '请选择货号', trigger: 'change' }],
+  warehouse_id: [{ required: true, message: '请选择仓库', trigger: 'change' }],
+  quantity: [{ required: true, message: '请输入入库数量', trigger: 'blur' }]
+}
+
+const createItemVisible = ref(false)
+const createItemSubmitting = ref(false)
+const createItemFormRef = ref(null)
+const emptyItemForm = () => ({ product_name: '', category_level1: '', category_level2: '', category_level3: '', spec: '', price: 0 })
+const createItemForm = reactive(emptyItemForm())
+const createItemRules = {
+  product_name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
+  category_level1: [{ required: true, message: '请输入一级分类', trigger: 'blur' }]
 }
 
 async function load() {
@@ -357,6 +437,78 @@ function handleAdjustClosed() {
   adjustFormRef.value?.clearValidate()
 }
 
+function openCreateItem() {
+  Object.assign(createItemForm, emptyItemForm())
+  createItemVisible.value = true
+}
+
+function handleCreateItemClosed() {
+  createItemFormRef.value?.clearValidate()
+}
+
+async function handleCreateItem() {
+  const valid = await createItemFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  createItemSubmitting.value = true
+  try {
+    const data = await createItemNumber({
+      ...createItemForm,
+      category_level2: createItemForm.category_level2 || null,
+      category_level3: createItemForm.category_level3 || null,
+      spec: createItemForm.spec || null
+    })
+    ElMessage.success(`已生成货号：${data.sku_code}，可继续采购入库`)
+    createItemVisible.value = false
+    skuOptions.value = (await getSkuOptions()) || []
+  } finally {
+    createItemSubmitting.value = false
+  }
+}
+
+async function toggleItemStatus(row) {
+  const nextStatus = row.sku_status === 1 ? 0 : 1
+  const action = nextStatus === 1 ? '启用' : '停用'
+  try {
+    await ElMessageBox.confirm(
+      `确认${action}货号「${row.sku_code}」吗？${nextStatus === 0 ? '停用后不能再关联订单或采购入库。' : ''}`,
+      `${action}货号`,
+      { type: 'warning', confirmButtonText: `确认${action}`, cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+  await updateItemNumberStatus(row.sku_id, nextStatus)
+  ElMessage.success(`货号已${action}`)
+  load()
+  skuOptions.value = (await getSkuOptions()) || []
+}
+
+function openInbound() {
+  inboundForm.sku_id = null
+  inboundForm.warehouse_id = query.warehouse_id || null
+  inboundForm.quantity = 1
+  inboundForm.remark = ''
+  inboundVisible.value = true
+}
+
+function handleInboundClosed() {
+  inboundFormRef.value?.clearValidate()
+}
+
+async function handleInbound() {
+  const valid = await inboundFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  inboundSubmitting.value = true
+  try {
+    await inboundInventory({ ...inboundForm, remark: inboundForm.remark.trim() || null })
+    ElMessage.success('采购入库成功')
+    inboundVisible.value = false
+    load()
+  } finally {
+    inboundSubmitting.value = false
+  }
+}
+
 /** 提交库存调整：quantity 为目标值，后端算差异 */
 async function handleAdjust() {
   const valid = await adjustFormRef.value.validate().catch(() => false)
@@ -393,6 +545,7 @@ async function handleAdjust() {
 onMounted(async () => {
   load()
   warehouseOptions.value = (await getWarehouseOptions()) || []
+  skuOptions.value = (await getSkuOptions()) || []
 })
 </script>
 
@@ -409,4 +562,14 @@ onMounted(async () => {
 .out-stock {
   color: #f56c6c;
 }
+
+.module-purpose {
+  margin-bottom: 14px;
+  color: #409eff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tabs { margin-bottom: 14px; }
+
 </style>

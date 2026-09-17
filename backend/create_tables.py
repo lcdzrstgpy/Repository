@@ -9,7 +9,7 @@
 
 import sys
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
 from app.core.config import settings
@@ -47,9 +47,23 @@ def ensure_database() -> None:
 
 
 def create_tables() -> None:
-    """按模型创建全部表（已存在的表不会被修改）。"""
+    """按模型创建全部表，并补齐货号生成所需的旧库字段。"""
     engine = create_engine(settings.DATABASE_URL, echo=settings.DB_ECHO)
     Base.metadata.create_all(bind=engine)
+    if engine.dialect.name == "mysql":
+        with engine.begin() as connection:
+            columns = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_sku'"
+                    )
+                )
+            }
+            if "category_id" not in columns:
+                connection.execute(text("ALTER TABLE product_sku ADD COLUMN category_id BIGINT NULL"))
+                print("[升级] product_sku 已新增 category_id")
     tables = ", ".join(sorted(Base.metadata.tables.keys()))
     print(f"[建表] 共 {len(Base.metadata.tables)} 张表：{tables}")
     engine.dispose()

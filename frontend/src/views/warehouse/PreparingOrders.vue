@@ -1,21 +1,32 @@
 <template>
   <div class="page-container">
     <el-card shadow="never">
+      <div class="module-purpose">优先备货 / 发货回传</div>
+      <WarehouseFulfillmentTabs class="tabs" />
       <div class="table-toolbar">
         <div>
           <span class="section-title">备货中订单</span>
           <span class="text-muted" style="margin-left: 12px">
-            共 {{ total }} 条，发货后状态回传运营端
+            共 {{ total }} 条；可完整发货的订单优先，缺货订单等待采购
           </span>
         </div>
-        <el-button :loading="loading" @click="load">
-          <el-icon><Refresh /></el-icon>
-          <span style="margin-left: 4px">刷新</span>
-        </el-button>
+        <div>
+          <el-button :loading="loading" @click="load">
+            <el-icon><Refresh /></el-icon>
+            <span style="margin-left: 4px">刷新</span>
+          </el-button>
+        </div>
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="no" label="订单号" width="170" />
+        <el-table-column label="备货优先级" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.can_ship ? 'success' : 'warning'" size="small">
+              {{ row.stock_status_text }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="item_count" label="商品行数" width="100" align="center">
           <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
         </el-table-column>
@@ -31,7 +42,7 @@
         <el-table-column prop="created_at" label="下单时间" width="170" />
         <el-table-column label="操作" width="120" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openShip(row)">发货</el-button>
+            <el-button link type="primary" :disabled="!row.can_ship" @click="openShip(row)">发货</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -80,12 +91,9 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getOrderList } from '@/api/order'
-import { shipOrder } from '@/api/warehouse'
+import { getPreparingOrders, shipOrder } from '@/api/warehouse'
 import { formatAmount, formatCount } from '@/utils/format'
-
-/** 备货中状态值，来自契约 3.2 */
-const PREPARING_STATUS = 30
+import WarehouseFulfillmentTabs from './components/WarehouseFulfillmentTabs.vue'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -112,10 +120,9 @@ const shipRules = {
 async function load() {
   loading.value = true
   try {
-    const data = await getOrderList({
+    const data = await getPreparingOrders({
       page: query.page,
-      page_size: query.page_size,
-      status: PREPARING_STATUS
+      page_size: query.page_size
     })
     list.value = data?.list || []
     total.value = data?.total || 0
@@ -170,5 +177,16 @@ onMounted(load)
   color: #303133;
   border-left: 3px solid #409eff;
   padding-left: 8px;
+}
+
+.module-purpose {
+  margin-bottom: 14px;
+  color: #409eff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tabs {
+  margin-bottom: 14px;
 }
 </style>

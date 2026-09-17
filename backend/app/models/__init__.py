@@ -1,6 +1,6 @@
 """SQLAlchemy 模型包。导入全部模型，保证 Base.metadata 完整。"""
 
-from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.basic import Partner, Product, ProductCategory, ProductSku, Warehouse
 from app.models.inventory import Inventory, InventoryHistory
 from app.models.order import (
     ORDER_STATUS_CANCELLED,
@@ -28,6 +28,7 @@ __all__ = [
     "ROLE_TEXT",
     "Warehouse",
     "Product",
+    "ProductCategory",
     "ProductSku",
     "Partner",
     "SalesOrder",

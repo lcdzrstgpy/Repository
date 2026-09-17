@@ -41,6 +41,18 @@ class Product(Base, TimestampMixin):
     )
 
 
+class ProductCategory(Base, TimestampMixin):
+    """货号生成用的三级分类，不作为前端菜单。"""
+
+    __tablename__ = "product_category"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    level: Mapped[int] = mapped_column(TINYINT, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code_segment: Mapped[str] = mapped_column(String(8), nullable=False)
+
+
 class ProductSku(Base, TimestampMixin):
     """商品 SKU（契约 4.4）。"""
 
@@ -50,13 +62,14 @@ class ProductSku(Base, TimestampMixin):
     product_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("product.id"), nullable=False, comment="关联 product"
     )
+    category_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     sku_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment="SKU 编码")
     spec: Mapped[str | None] = mapped_column(String(200), nullable=True, comment="规格")
     price: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="售价"
     )
     min_stock: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="安全库存下限，0 表示不预警"
+        Numeric(14, 2), nullable=False, default=Decimal("10.00"), comment="安全库存下限"
     )
     status: Mapped[int] = mapped_column(
         TINYINT, nullable=False, default=1, comment="1 启用 / 0 停用"

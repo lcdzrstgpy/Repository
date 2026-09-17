@@ -2,6 +2,8 @@
   <div class="page-container">
     <!-- 查询条件 -->
     <el-card shadow="never" class="search-card">
+      <div class="module-purpose">查询 / 追溯出库</div>
+      <WarehouseFulfillmentTabs class="tabs" />
       <el-form :model="query" inline>
         <el-form-item label="仓库">
           <el-select
@@ -109,6 +111,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import WarehouseFulfillmentTabs from './components/WarehouseFulfillmentTabs.vue'
 import { getOutList, cancelOut } from '@/api/stock'
 import { getWarehouseOptions } from '@/api/basic'
 import { outStatusType, outStatusLabel } from '@/utils/constants'
@@ -208,3 +211,16 @@ onMounted(async () => {
   warehouseOptions.value = (await getWarehouseOptions()) || []
 })
 </script>
+
+<style scoped>
+.module-purpose {
+  margin-bottom: 14px;
+  color: #409eff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.tabs {
+  margin-bottom: 14px;
+}
+</style>

@@ -2,6 +2,8 @@
   <div class="page-container">
     <!-- 查询条件：仅仓库筛选（契约 18.3） -->
     <el-card shadow="never" class="search-card">
+      <div class="module-purpose">库存预警 / 补货提醒</div>
+      <WarehouseInventoryTabs class="tabs" />
       <el-form :model="query" inline>
         <el-form-item label="仓库">
           <el-select
@@ -38,7 +40,7 @@
         type="warning"
         :closable="false"
         show-icon
-        title="可用量低于安全库存的 SKU 会出现在这里，按短缺量从大到小排序；安全库存为 0 表示不预警。"
+        title="可用量低于安全库存的货号会出现在这里，按短缺量从大到小排序；建议采购量会自动补足安全库存。"
       />
 
       <div class="table-toolbar">
@@ -50,13 +52,13 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="sku_code" label="SKU 编码" width="130" />
+        <el-table-column prop="sku_code" label="货号" width="130" />
         <el-table-column prop="product_name" label="商品名称" min-width="160" show-overflow-tooltip />
         <el-table-column prop="spec" label="规格" min-width="130" show-overflow-tooltip>
           <template #default="{ row }">{{ row.spec || '-' }}</template>
         </el-table-column>
         <el-table-column prop="warehouse_name" label="仓库" width="130">
-          <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
+          <template #default="{ row }">{{ row.warehouse_name || '未入库' }}</template>
         </el-table-column>
         <el-table-column prop="quantity" label="现存数量" width="110" align="right">
           <template #default="{ row }">{{ formatCount(row.quantity) }}</template>
@@ -102,6 +104,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { getInventoryAlerts } from '@/api/inventory'
 import { getWarehouseOptions } from '@/api/basic'
 import { formatCount } from '@/utils/format'
+import WarehouseInventoryTabs from './components/WarehouseInventoryTabs.vue'
 
 const loading = ref(false)
 const list = ref([])
@@ -172,4 +175,7 @@ onMounted(async () => {
   color: #f56c6c;
   font-weight: 600;
 }
+
+.module-purpose { margin-bottom: 14px; color: #409eff; font-size: 18px; font-weight: 600; }
+.tabs { margin-bottom: 14px; }
 </style>

@@ -89,11 +89,11 @@
 
       <el-table :data="form.items" border>
         <el-table-column type="index" label="序号" width="60" align="center" />
-        <el-table-column label="SKU" min-width="230">
+        <el-table-column label="货号" min-width="230">
           <template #default="{ row }">
             <el-select
               v-model="row.sku_id"
-              placeholder="请选择 SKU"
+              placeholder="请选择货号"
               filterable
               style="width: 100%"
               @change="(val) => handleSkuChange(row, val)"
@@ -303,7 +303,7 @@ function validateItems() {
   for (let i = 0; i < form.items.length; i += 1) {
     const row = form.items[i]
     if (!row.sku_id) {
-      ElMessage.warning(`第 ${i + 1} 行未选择 SKU`)
+      ElMessage.warning(`第 ${i + 1} 行未选择货号`)
       return false
     }
     if (!row.count || Number(row.count) <= 0) {
@@ -327,7 +327,7 @@ function validateItems() {
   // 同一 SKU 不允许重复出现
   const skuIds = form.items.map((row) => row.sku_id)
   if (new Set(skuIds).size !== skuIds.length) {
-    ElMessage.warning('同一 SKU 不能重复添加，请合并数量')
+    ElMessage.warning('同一货号不能重复添加，请合并数量')
     return false
   }
   return true

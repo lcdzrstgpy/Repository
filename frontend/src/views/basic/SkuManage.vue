@@ -5,7 +5,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
-            placeholder="SKU 编码 / 规格"
+            placeholder="货号 / 规格"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -26,7 +26,7 @@
 
     <el-card shadow="never">
       <div class="table-toolbar">
-        <span class="text-muted">共 {{ total }} 条 SKU 记录</span>
+        <span class="text-muted">共 {{ total }} 条货号记录</span>
         <div>
           <el-button v-if="userStore.isAdmin" :loading="exporting" @click="handleExport">
             <el-icon><Download /></el-icon>
@@ -34,14 +34,14 @@
           </el-button>
           <el-button type="primary" @click="openCreate">
             <el-icon><Plus /></el-icon>
-            <span style="margin-left: 4px">新增 SKU</span>
+            <span style="margin-left: 4px">新增货号</span>
           </el-button>
         </div>
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="id" label="ID" width="80" align="center" />
-        <el-table-column prop="sku_code" label="SKU 编码" width="150" />
+        <el-table-column prop="sku_code" label="货号" width="150" />
         <el-table-column label="所属商品" min-width="170" show-overflow-tooltip>
           <template #default="{ row }">{{ productName(row) }}</template>
         </el-table-column>
@@ -85,7 +85,7 @@
     </el-card>
 
     <!-- 新增 / 编辑弹窗 -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑 SKU' : '新增 SKU'" width="520px">
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑货号' : '新增货号'" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="所属商品" prop="product_id">
           <el-select
@@ -102,8 +102,8 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="SKU 编码" prop="sku_code">
-          <el-input v-model="form.sku_code" placeholder="如 SKU001" maxlength="64" />
+        <el-form-item label="货号" prop="sku_code">
+          <el-input v-model="form.sku_code" placeholder="如 A001-B001-C001" maxlength="64" />
         </el-form-item>
         <el-form-item label="规格">
           <el-input v-model="form.spec" placeholder="选填，如 红色/大号" maxlength="200" />
@@ -162,7 +162,7 @@ const defaultForm = { product_id: null, sku_code: '', spec: '', price: 0, min_st
 
 const rules = {
   product_id: [{ required: true, message: '请选择所属商品', trigger: 'change' }],
-  sku_code: [{ required: true, message: '请输入 SKU 编码', trigger: 'blur' }],
+  sku_code: [{ required: true, message: '请输入货号', trigger: 'blur' }],
   price: [{ required: true, message: '请输入售价', trigger: 'blur' }],
   min_stock: [{ required: true, message: '请输入安全库存', trigger: 'blur' }]
 }
@@ -188,7 +188,7 @@ const {
   handleDelete,
   handleSizeChange,
   handlePageChange
-} = useCrud({ api: skuApi, defaultForm, label: 'SKU' })
+} = useCrud({ api: skuApi, defaultForm, label: '货号' })
 
 /** 所属商品名称：优先用后端返回的 product_name，否则按 product_id 查本地商品列表 */
 function productName(row) {
