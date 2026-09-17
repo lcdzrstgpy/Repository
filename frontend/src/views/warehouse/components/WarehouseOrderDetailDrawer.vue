@@ -107,6 +107,13 @@
     </div>
 
     <template #footer>
+      <el-button
+        v-if="pendingNewSkuRow && detail?.status === 20"
+        type="primary"
+        @click="openNewSku(pendingNewSkuRow)"
+      >
+        新建货号
+      </el-button>
       <el-button @click="emit('update:modelValue', false)">关闭</el-button>
       <el-button v-if="canClaim" type="primary" :loading="claiming" @click="openClaim">
         接单并关联货号
@@ -230,6 +237,9 @@ const canClaim = computed(() => detail.value?.status === 10)
 /** 已关联行数：判断是否已关联看 sku_id 是否为空 */
 const boundCount = computed(() => (detail.value?.items || []).filter((row) => !!row.sku_id).length)
 const unboundCount = computed(() => itemCount.value - boundCount.value)
+const pendingNewSkuRow = computed(
+  () => (detail.value?.items || []).find((row) => !row.sku_id && row.is_new === 1) || null
+)
 /** 以后端返回的 all_sku_bound 为准，缺失时按行数兜底 */
 const allBound = computed(() =>
   typeof detail.value?.all_sku_bound === 'boolean'
