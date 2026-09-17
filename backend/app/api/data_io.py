@@ -17,16 +17,16 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.response import BizException, ParamException, ok
 from app.core.security import require_roles
-from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.basic import Product, ProductSku, Warehouse
 from app.models.inventory import Inventory
-from app.models.order import SalesOrder, status_text
+from app.models.order import SalesOrder, SalesOrderItem, status_text
 from app.models.user import SysUser
 from app.schemas.serializers import fmt_dt
 
@@ -119,26 +119,28 @@ def _parse_date(raw: str | None, *, end_of_day: bool) -> datetime | None:
     return value
 
 
-def _order_name_maps(db: Session, orders: list[SalesOrder]) -> tuple[dict, dict]:
-    """批量取客户名与用户名，避免逐行查询。"""
-    customer_ids = {o.customer_id for o in orders if o.customer_id}
+def _order_user_names(db: Session, orders: list[SalesOrder]) -> dict[int, str]:
+    """批量取下单人 / 接单人姓名，避免逐行查询（订单已无客户字段，契约 17.1）。"""
     user_ids = {o.created_by for o in orders if o.created_by}
     user_ids |= {o.claimed_by for o in orders if o.claimed_by}
+    if not user_ids:
+        return {}
+    return {
+        u.id: (u.real_name or u.username)
+        for u in db.scalars(select(SysUser).where(SysUser.id.in_(user_ids)))
+    }
 
-    customers = (
-        {p.id: p.name for p in db.scalars(select(Partner).where(Partner.id.in_(customer_ids)))}
-        if customer_ids
-        else {}
-    )
-    users = (
-        {
-            u.id: (u.real_name or u.username)
-            for u in db.scalars(select(SysUser).where(SysUser.id.in_(user_ids)))
-        }
-        if user_ids
-        else {}
-    )
-    return customers, users
+
+def _order_item_counts(db: Session, order_ids: list[int]) -> dict[int, int]:
+    """批量统计每张订单的明细行数（导出「商品行数」列用，契约 19.5）。"""
+    if not order_ids:
+        return {}
+    rows = db.execute(
+        select(SalesOrderItem.order_id, func.count(SalesOrderItem.id))
+        .where(SalesOrderItem.order_id.in_(order_ids))
+        .group_by(SalesOrderItem.order_id)
+    ).all()
+    return {int(order_id): int(count or 0) for order_id, count in rows}
 
 
 # ---------------------------------------------------------------- 导出接口
@@ -252,8 +254,9 @@ def export_sales_orders(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
 ):
-    """订单：单号 / 客户 / 状态 / 总数量 / 总金额 / 物流单号 / 下单人 / 接单人 / 下单时间 / 发货时间。
+    """订单：单号 / 商品行数 / 状态 / 总数量 / 总金额 / 物流单号 / 下单人 / 接单人 / 下单时间 / 发货时间。
 
+    契约 19.5：去掉「客户」列，新增「商品行数」列（订单已无客户字段）。
     可见性规则与订单列表一致（契约 5.3 / 14.1）：operator 只导出自己创建的订单，
     warehouse / admin 导出全部。日期按 created_at 过滤，end_date 含当天 23:59:59。
     """
@@ -279,13 +282,14 @@ def export_sales_orders(
         ).all()
     )
     orders = _cap(orders, "销售订单")
-    customers, users = _order_name_maps(db, orders)
+    users = _order_user_names(db, orders)
+    item_counts = _order_item_counts(db, [order.id for order in orders])
 
     wb, ws = _new_workbook(
         "销售订单",
         [
             "单号",
-            "客户",
+            "商品行数",
             "状态",
             "总数量",
             "总金额",
@@ -295,13 +299,13 @@ def export_sales_orders(
             "下单时间",
             "发货时间",
         ],
-        [22, 26, 12, 12, 14, 20, 12, 12, 22, 22],
+        [22, 12, 12, 12, 14, 20, 12, 12, 22, 22],
     )
     for order in orders:
         ws.append(
             [
                 order.no,
-                customers.get(order.customer_id),
+                item_counts.get(order.id, 0),
                 status_text(order.status),
                 float(order.total_count or 0),
                 float(order.total_price or 0),

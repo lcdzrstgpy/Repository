@@ -13,19 +13,30 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="no" label="订单单号" width="170" />
-        <el-table-column prop="customer_name" label="客户名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="no" label="订单号" width="170" />
+        <el-table-column prop="item_count" label="商品行数" width="100" align="center">
+          <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
+        </el-table-column>
+        <el-table-column label="货号处理" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.unbound_count > 0" type="danger" size="small" effect="dark">
+              待关联 {{ formatCount(row.unbound_count) }}
+            </el-tag>
+            <el-tag v-else type="success" size="small">已关联</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="total_count" label="总数量" width="100" align="right">
           <template #default="{ row }">{{ formatCount(row.total_count) }}</template>
         </el-table-column>
-        <el-table-column prop="total_price" label="总金额" width="120" align="right">
+        <el-table-column prop="total_price" label="预计总成本" width="130" align="right">
           <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
         </el-table-column>
         <el-table-column prop="created_by_name" label="下单人" width="110" />
         <el-table-column prop="created_at" label="下单时间" width="170" />
-        <el-table-column label="操作" width="120" fixed="right" align="center">
+        <el-table-column label="操作" width="140" fixed="right" align="center">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openClaim(row)">接单</el-button>
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+            <el-button link type="primary" @click="openClaim(row)">接单并关联货号</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -45,11 +56,11 @@
     </el-card>
 
     <!-- 接单弹窗：选择仓库 -->
-    <el-dialog v-model="claimVisible" title="接单" width="460px" @closed="handleDialogClosed">
+    <el-dialog v-model="claimVisible" title="接单并关联货号" width="460px" @closed="handleDialogClosed">
       <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
-        <el-descriptions-item label="订单单号">{{ currentRow?.no }}</el-descriptions-item>
-        <el-descriptions-item label="客户名称">{{ currentRow?.customer_name }}</el-descriptions-item>
-        <el-descriptions-item label="订单金额">
+        <el-descriptions-item label="订单号">{{ currentRow?.no }}</el-descriptions-item>
+        <el-descriptions-item label="商品行数">{{ formatCount(currentRow?.item_count) }}</el-descriptions-item>
+        <el-descriptions-item label="预计总成本">
           ￥{{ formatAmount(currentRow?.total_price) }}
         </el-descriptions-item>
       </el-descriptions>
@@ -74,9 +85,16 @@
 
       <template #footer>
         <el-button @click="claimVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleClaim">确认接单</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleClaim">接单并继续关联</el-button>
       </template>
     </el-dialog>
+
+    <!-- 订单详情（待接单状态下仅查看；接单成功后自动打开，直接处理货号） -->
+    <WarehouseOrderDetailDrawer
+      v-model="detailVisible"
+      :order-id="currentOrderId"
+      @updated="load"
+    />
   </div>
 </template>
 
@@ -86,6 +104,7 @@ import { ElMessage } from 'element-plus'
 import { getPendingOrders, claimOrder } from '@/api/warehouse'
 import { getWarehouseOptions } from '@/api/basic'
 import { formatAmount, formatCount } from '@/utils/format'
+import WarehouseOrderDetailDrawer from './components/WarehouseOrderDetailDrawer.vue'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -102,6 +121,10 @@ const claimVisible = ref(false)
 const claimFormRef = ref(null)
 const currentRow = ref(null)
 const claimForm = reactive({ warehouse_id: null })
+
+// 详情抽屉
+const detailVisible = ref(false)
+const currentOrderId = ref(null)
 
 const claimRules = {
   warehouse_id: [{ required: true, message: '请选择接单仓库', trigger: 'change' }]
@@ -133,6 +156,11 @@ async function loadWarehouses() {
   warehouseOptions.value = (await getWarehouseOptions()) || []
 }
 
+function openDetail(row) {
+  currentOrderId.value = row.id
+  detailVisible.value = true
+}
+
 function openClaim(row) {
   currentRow.value = row
   claimForm.warehouse_id = null
@@ -147,12 +175,17 @@ async function handleClaim() {
   const valid = await claimFormRef.value.validate().catch(() => false)
   if (!valid) return
 
+  const claimedId = currentRow.value.id
   submitting.value = true
   try {
-    await claimOrder(currentRow.value.id, claimForm.warehouse_id)
-    ElMessage.success('接单成功，订单状态已变更为「已接单」')
+    await claimOrder(claimedId, claimForm.warehouse_id)
+    ElMessage.success('接单成功，请在当前详情中完成货号关联')
     claimVisible.value = false
-    load()
+    await load()
+
+    // 接单成功后自动打开该订单的货号处理抽屉，仓储可直接接着绑货号
+    currentOrderId.value = claimedId
+    detailVisible.value = true
   } finally {
     submitting.value = false
   }

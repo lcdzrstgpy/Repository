@@ -150,27 +150,76 @@ r = client.post("/api/auth/login", json={"username": "warehouse1", "password": "
 wh_h = {"Authorization": f"Bearer {(body(r).get('data') or {}).get('access_token', '')}"}
 check("warehouse1 登录", body(r).get("code") == 0)
 
+# 运营货号库存查询：仅展示货号资料和各仓库库存，不提供库存写入能力。
+r = client.get("/api/item-query", params={"keyword": "SKU001"}, headers=op_h)
+item_rows = body(r).get("data", [])
+sku001 = next((item for item in item_rows if item.get("item_no") == "SKU001"), None)
+check(
+    "运营可查询货号及仓库库存",
+    body(r).get("code") == 0
+    and sku001 is not None
+    and isinstance(sku001.get("stocks"), list)
+    and {"warehouse_id", "warehouse_name", "quantity", "available_quantity"}
+    <= set((sku001.get("stocks") or [{}])[0].keys()),
+    str(body(r))[:180],
+)
+r = client.get("/api/inventory", headers=op_h)
+check("运营不能访问仓储库存操作台接口", body(r).get("code") == 403, str(body(r))[:120])
+
 r = client.post(
     "/api/sales-orders",
     json={
-        "customer_id": 1,
+        "no": "TB20260917999",
         "remark": "冒烟测试订单",
-        "items": [{"sku_id": 1, "count": 10, "price": 25.0}],
+        "items": [
+            {"product_name": "商品A", "sku_code": "SKU001", "count": 10, "expect_price": 25.0},
+            {"product_name": "全新商品X", "is_new": 1, "count": 5, "expect_price": 8.5},
+        ],
     },
     headers=op_h,
 )
 d = body(r)
 order_id = d.get("data", {}).get("id")
-check("创建订单", d.get("code") == 0 and order_id, str(d)[:120])
+check("创建订单（一行填货号 + 一行勾新品）", d.get("code") == 0 and order_id, str(d)[:120])
 check("订单初始状态=10", d.get("data", {}).get("status") == 10)
-check("总额后端计算正确", d.get("data", {}).get("total_price") == 250.0, f"total_price={d.get('data',{}).get('total_price')}")
+check("总额后端计算正确", d.get("data", {}).get("total_price") == 292.5, f"total_price={d.get('data',{}).get('total_price')}")
+check("明细行数=2", d.get("data", {}).get("item_count") == 2)
+check("未关联货号行数=2", d.get("data", {}).get("unbound_count") == 2)
+check("all_sku_bound=false", d.get("data", {}).get("all_sku_bound") is False)
+
+r = client.post(
+    "/api/sales-orders",
+    json={"no": "TB-BAD-001", "items": [{"product_name": "缺货号商品", "count": 1, "expect_price": 1.0}]},
+    headers=op_h,
+)
+check("货号与新品都不填被拒", body(r).get("code") != 0, str(body(r))[:100])
+
+r = client.post(
+    "/api/sales-orders",
+    json={
+        "no": "TB-DECIMAL-001",
+        "items": [{"product_name": "小数数量商品", "sku_code": "SKU001", "count": 1.5, "expect_price": 1.0}],
+    },
+    headers=op_h,
+)
+check("创建订单小数数量被拒", body(r).get("code") == 400, str(body(r))[:100])
+
+r = client.post(
+    "/api/sales-orders",
+    json={
+        "no": "TB20260917999",
+        "items": [{"product_name": "重复单号", "sku_code": "SKU001", "count": 1, "expect_price": 1.0}],
+    },
+    headers=op_h,
+)
+check("订单号重复被拒", body(r).get("code") == 1001, str(body(r))[:100])
 
 r = client.get("/api/sales-orders", headers=op_h)
 lst = body(r).get("data", {}).get("list", [])
 check("运营只看自己的订单", body(r).get("code") == 0, f"{len(lst)} 条")
 
 # ---------------------------------------------------------------- 仓储履约
-print("\n=== 6. 仓储接单 → 备货 → 发货 ===")
+print("\n=== 6. 仓储接单 → 绑定货号 → 备货 → 发货 ===")
 r = client.get("/api/warehouse/pending-orders", headers=wh_h)
 pending = body(r).get("data", {}).get("list", [])
 check("待接单列表", body(r).get("code") == 0, f"{len(pending)} 条")
@@ -179,22 +228,97 @@ r = client.post(f"/api/warehouse/orders/{order_id}/claim", json={"warehouse_id":
 check("接单", body(r).get("code") == 0, str(body(r))[:120])
 
 r = client.get("/api/inventory", params={"warehouse_id": 1}, headers=wh_h)
-inv = body(r).get("data", {}).get("list", [])
-sku1 = next((i for i in inv if i["sku_id"] == 1), None)
-check("接单后预留量=10", sku1 and sku1["reserved_quantity"] == 10.0, f"reserved={sku1 and sku1['reserved_quantity']}")
-check("接单后库存量不变=100", sku1 and sku1["quantity"] == 100.0, f"qty={sku1 and sku1['quantity']}")
-check("可用量=90", sku1 and sku1["available_quantity"] == 90.0, f"avail={sku1 and sku1['available_quantity']}")
+sku1 = next((i for i in body(r).get("data", {}).get("list", []) if i["sku_id"] == 1), None)
+check("接单阶段不预留（货号还没绑）", sku1 and sku1["reserved_quantity"] == 0.0, f"reserved={sku1 and sku1['reserved_quantity']}")
 
 r = client.post(f"/api/warehouse/orders/{order_id}/prepare", json={}, headers=wh_h)
-check("开始备货", body(r).get("code") == 0, str(body(r))[:120])
+check("prepare 已废弃（返回 1001）", body(r).get("code") == 1001, str(body(r))[:140])
+
+r = client.get(f"/api/sales-orders/{order_id}", headers=wh_h)
+items = body(r).get("data", {}).get("items", [])
+it_old = next((i for i in items if i.get("sku_code")), None)
+it_new = next((i for i in items if i.get("is_new") == 1), None)
+
+bind_payload = {"items": []}
+if it_old:
+    bind_payload["items"].append({"item_id": it_old["id"], "sku_code": it_old["sku_code"]})
+if it_new:
+    bind_payload["items"].append(
+        {
+            "item_id": it_new["id"],
+            "new_sku": {
+                "sku_code": "NEW-SMOKE-001",
+                "product_name": it_new["product_name"],
+                "spec": "标准",
+                "price": 8.5,
+            },
+        }
+    )
+r = client.post(f"/api/warehouse/orders/{order_id}/bind-sku", json=bind_payload, headers=wh_h)
+check("绑定货号（关联已有 + 新建）", body(r).get("code") == 0, str(body(r))[:180])
+check("绑定后 all_sku_bound=true", body(r).get("data", {}).get("all_sku_bound") is True)
+check(
+    "绑定后自动进入「数量待确认」(25)",
+    body(r).get("data", {}).get("status") == 25,
+    f"status={body(r).get('data', {}).get('status')}",
+)
+check(
+    "状态文案=数量待确认",
+    body(r).get("data", {}).get("status_text") == "数量待确认",
+    str(body(r).get("data", {}).get("status_text")),
+)
+
+if it_old:
+    r = client.post(
+        f"/api/warehouse/orders/{order_id}/bind-sku",
+        json={"items": [{"item_id": it_old["id"], "sku_code": it_old["sku_code"]}]},
+        headers=wh_h,
+    )
+    check("已关联货号不可重复修改", body(r).get("code") == 1001, str(body(r))[:130])
+
+# 新建的 SKU 初始库存为 0，先补货（模拟采购入库后的状态）
+r = client.get(f"/api/sales-orders/{order_id}", headers=wh_h)
+bound_items = body(r).get("data", {}).get("items", [])
+new_item = next((i for i in bound_items if i.get("is_new") == 1 and i.get("sku_id")), None)
+if new_item:
+    r = client.post(
+        "/api/inventory/adjust",
+        json={"sku_id": new_item["sku_id"], "warehouse_id": 1, "quantity": 100, "remark": "冒烟测试补货"},
+        headers=admin_h,
+    )
+    check("为新货号补货（模拟采购入库）", body(r).get("code") == 0, str(body(r))[:150])
+
+r = client.post(
+    f"/api/sales-orders/{order_id}/confirm-quantity",
+    json={
+        "items": [
+            {"item_id": it_old["id"], "count": 8},
+            {"item_id": it_new["id"], "count": 3},
+        ]
+    },
+    headers=op_h,
+)
+check("运营修改数量并确认（25 → 30）", body(r).get("code") == 0, str(body(r))[:150])
+check("确认后状态=30 备货中", body(r).get("data", {}).get("status") == 30)
+check("确认后订单总数量按修改值重算", body(r).get("data", {}).get("total_count") == 11.0)
+check("确认后订单总成本按修改值重算", body(r).get("data", {}).get("total_price") == 225.5)
+confirmed_items = body(r).get("data", {}).get("items", [])
+confirmed_counts = {item["id"]: item["count"] for item in confirmed_items}
+check("确认后明细数量按修改值保存", confirmed_counts == {it_old["id"]: 8.0, it_new["id"]: 3.0}, str(confirmed_counts))
+
+r = client.get("/api/inventory", params={"warehouse_id": 1}, headers=wh_h)
+sku1 = next((i for i in body(r).get("data", {}).get("list", []) if i["sku_id"] == 1), None)
+check("确认数量不预留库存", sku1 and sku1["reserved_quantity"] == 0.0, f"reserved={sku1 and sku1['reserved_quantity']}")
+check("备货后库存量不变=100", sku1 and sku1["quantity"] == 100.0, f"qty={sku1 and sku1['quantity']}")
+check("确认数量后可用量仍为100", sku1 and sku1["available_quantity"] == 100.0, f"avail={sku1 and sku1['available_quantity']}")
 
 r = client.post(f"/api/warehouse/orders/{order_id}/ship", json={"express_no": "SF1234567890"}, headers=wh_h)
 check("发货", body(r).get("code") == 0, str(body(r))[:150])
 
 r = client.get("/api/inventory", params={"warehouse_id": 1}, headers=wh_h)
 sku1 = next((i for i in body(r).get("data", {}).get("list", []) if i["sku_id"] == 1), None)
-check("发货后库存=90", sku1 and sku1["quantity"] == 90.0, f"qty={sku1 and sku1['quantity']}")
-check("发货后预留释放=0", sku1 and sku1["reserved_quantity"] == 0.0, f"reserved={sku1 and sku1['reserved_quantity']}")
+check("发货后库存=92", sku1 and sku1["quantity"] == 92.0, f"qty={sku1 and sku1['quantity']}")
+check("发货后预留仍为0", sku1 and sku1["reserved_quantity"] == 0.0, f"reserved={sku1 and sku1['reserved_quantity']}")
 
 r = client.get("/api/sales-outs", headers=wh_h)
 outs = body(r).get("data", {}).get("list", [])
@@ -205,7 +329,11 @@ if out_id:
     r = client.get(f"/api/sales-outs/{out_id}", headers=wh_h)
     d = body(r).get("data", {})
     check("出库单详情含明细", len(d.get("items", [])) > 0)
-    check("出库单含客户名称", bool(d.get("customer_name")), f"customer_name={d.get('customer_name')}")
+    check(
+        "出库单明细含商品名",
+        any(i.get("product_name") for i in d.get("items", [])),
+        str(d.get("items", [])[:1])[:120],
+    )
 
 r = client.get("/api/inventory/history", headers=wh_h)
 hist = body(r).get("data", {}).get("list", [])
@@ -232,10 +360,13 @@ check("operator 不能建仓库", body(r).get("code") == 403, str(body(r))[:100]
 
 r = client.post(
     "/api/sales-orders",
-    json={"customer_id": 1, "items": [{"sku_id": 1, "count": 1, "price": 1.0}]},
+    json={
+        "no": "TB-PERM-001",
+        "items": [{"product_name": "越权测试品", "sku_code": "SKU001", "count": 1, "expect_price": 1.0}],
+    },
     headers=op_h,
 )
-other_order = body(r).get("data", {}).get("id")
+other_order = (body(r).get("data") or {}).get("id")
 r = client.post(f"/api/warehouse/orders/{other_order}/claim", json={"warehouse_id": 1}, headers=op_h)
 check("operator 不能接单", body(r).get("code") == 403, str(body(r))[:100])
 
@@ -243,16 +374,53 @@ check("operator 不能接单", body(r).get("code") == 403, str(body(r))[:100])
 print("\n=== 9. 库存不足拦截 ===")
 r = client.post(
     "/api/sales-orders",
-    json={"customer_id": 1, "items": [{"sku_id": 1, "count": 99999, "price": 1.0}]},
+    json={
+        "no": "TB-OVER-001",
+        "items": [{"product_name": "超量商品", "sku_code": "SKU001", "count": 99999, "expect_price": 1.0}],
+    },
     headers=op_h,
 )
-big_order = body(r).get("data", {}).get("id")
+big_order = (body(r).get("data") or {}).get("id")
 client.post(f"/api/warehouse/orders/{big_order}/claim", json={"warehouse_id": 1}, headers=wh_h)
-r = client.post(f"/api/warehouse/orders/{big_order}/claim", json={"warehouse_id": 1}, headers=wh_h)
-check("超量接单被拦截", body(r).get("code") == 1001, str(body(r))[:180])
+
+r = client.get(f"/api/sales-orders/{big_order}", headers=wh_h)
+big_items = body(r).get("data", {}).get("items", [])
+if big_items:
+    client.post(
+        f"/api/warehouse/orders/{big_order}/bind-sku",
+        json={"items": [{"item_id": big_items[0]["id"], "sku_code": "SKU001"}]},
+        headers=wh_h,
+    )
+big_item_id = big_items[0]["id"] if big_items else None
+r = client.post(
+    f"/api/sales-orders/{big_order}/confirm-quantity",
+    json={"items": [{"item_id": big_item_id, "count": 1.5}]},
+    headers=op_h,
+)
+check("确认数量小数被拒", body(r).get("code") == 400, str(body(r))[:180])
+r = client.post(
+    f"/api/sales-orders/{big_order}/confirm-quantity",
+    json={"items": [{"item_id": big_item_id, "count": 99999}]},
+    headers=op_h,
+)
+check("库存不足仍可确认数量并进入备货", body(r).get("code") == 0 and body(r).get("data", {}).get("status") == 30, str(body(r))[:180])
+r = client.post(f"/api/warehouse/orders/{big_order}/ship", json={"express_no": "SF-OVER-001"}, headers=wh_h)
+check("仓储发货时拦截库存不足", body(r).get("code") == 1001, str(body(r))[:180])
 
 # ---------------------------------------------------------------- 采购链路
 print("\n=== 10. 采购链路 ===")
+# 采购价上限校验（契约 17.3）：SKU001 在 TB20260917999 里的预计成本是 25.00
+r = client.post(
+    "/api/purchase-orders",
+    json={
+        "supplier_id": sup[0]["id"] if sup else 3,
+        "sales_order_id": order_id,
+        "items": [{"sku_id": 1, "count": 1, "price": 999.0}],
+    },
+    headers=wh_h,
+)
+check("采购价高于预计成本被拒", body(r).get("code") == 1001, str(body(r))[:150])
+
 r = client.post(
     "/api/purchase-orders",
     json={

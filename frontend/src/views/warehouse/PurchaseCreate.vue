@@ -57,10 +57,10 @@
                 <el-option
                   v-for="item in salesOrderOptions"
                   :key="item.id"
-                  :label="`${item.no} · ${item.customer_name || ''}`"
+                  :label="item.no"
                   :value="item.id"
                 >
-                  <span>{{ item.no }} · {{ item.customer_name || '-' }}</span>
+                  <span>{{ item.no }} · {{ formatCount(item.item_count) }} 行商品</span>
                   <span class="option-extra">{{ item.status_text || orderStatusLabel(item.status) }}</span>
                 </el-option>
               </el-select>
@@ -128,7 +128,7 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="采购单价（元）" width="150">
+        <el-table-column label="采购单价（元）" width="170">
           <template #default="{ row }">
             <el-input-number
               v-model="row.price"
@@ -138,6 +138,15 @@
               controls-position="right"
               style="width: 100%"
             />
+            <!-- 关联销售订单时，提示该行运营填写的预计成本（采购价上限） -->
+            <div
+              v-if="priceCap(row) !== null"
+              class="cap-tip"
+              :class="{ 'cap-tip-over': isOverCap(row) }"
+            >
+              价格上限 ￥{{ formatAmount(priceCap(row)) }}
+              <span v-if="isOverCap(row)">（已超出）</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="小计（元）" width="120" align="right">
@@ -172,17 +181,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { createPurchaseOrder } from '@/api/purchase'
-import { getOrderList } from '@/api/order'
+import { getOrderList, getOrderDetail } from '@/api/order'
 import { getPartnerOptions, getSkuOptions } from '@/api/basic'
 import { orderStatusLabel } from '@/utils/constants'
 import { formatAmount, formatCount } from '@/utils/format'
 
-/** 待备货订单：已接单 / 备货中（契约 10.1：备货缺货时采购） */
-const STOCK_NEEDED_STATUS = [20, 30]
+/** 待备货订单：已接单 / 数量待确认 / 备货中（契约 10.1：备货缺货时采购） */
+const STOCK_NEEDED_STATUS = [20, 25, 30]
 
 const router = useRouter()
 
@@ -191,6 +200,8 @@ const submitting = ref(false)
 const supplierOptions = ref([])
 const skuOptions = ref([])
 const salesOrderOptions = ref([])
+/** 采购价上限：{ [sku_id]: expect_price }，取自所关联销售订单明细的预计成本 */
+const priceCapMap = ref({})
 
 const form = reactive({
   supplier_id: null,
@@ -229,6 +240,44 @@ const totalCount = computed(() =>
 /** 总金额 */
 const totalPrice = computed(() => form.items.reduce((sum, row) => sum + itemTotal(row), 0))
 
+/** 取某行的采购价上限；未关联销售订单或该 SKU 无上限时返回 null */
+function priceCap(row) {
+  if (!row.sku_id) return null
+  const cap = priceCapMap.value[row.sku_id]
+  return cap === undefined || cap === null ? null : Number(cap)
+}
+
+/** 该行采购单价是否已超出运营填写的预计成本 */
+function isOverCap(row) {
+  const cap = priceCap(row)
+  if (cap === null) return false
+  return Number(row.price) > cap
+}
+
+/** 关联销售订单变化时，拉取订单详情构建价格上限表 */
+async function loadPriceCaps(orderId) {
+  if (!orderId) {
+    priceCapMap.value = {}
+    return
+  }
+  try {
+    const detail = await getOrderDetail(orderId)
+    const map = {}
+    ;(detail?.items || []).forEach((item) => {
+      // 仅已关联货号（有 sku_id）的行才有明确的价格上限
+      if (item.sku_id && item.expect_price !== null && item.expect_price !== undefined) {
+        map[item.sku_id] = Number(item.expect_price)
+      }
+    })
+    priceCapMap.value = map
+  } catch (e) {
+    // 详情拉取失败时清空上限，不阻塞采购单填写
+    priceCapMap.value = {}
+  }
+}
+
+watch(() => form.sales_order_id, loadPriceCaps)
+
 /** 选择 SKU 后自动带出参考单价 */
 function handleSkuChange(row, skuId) {
   const sku = findSku(skuId)
@@ -263,6 +312,14 @@ function validateItems() {
     }
     if (row.price === null || row.price === undefined || Number(row.price) < 0) {
       ElMessage.warning(`第 ${i + 1} 行采购单价不合法`)
+      return false
+    }
+    // 关联销售订单时，采购价不得高于运营填写的预计成本（契约 17.3）
+    const cap = priceCap(row)
+    if (cap !== null && Number(row.price) > cap) {
+      ElMessage.warning(
+        `第 ${i + 1} 行采购单价 ${formatAmount(row.price)} 高于运营填写的预计成本 ${formatAmount(cap)}`
+      )
       return false
     }
   }
@@ -308,7 +365,7 @@ async function loadOptions() {
   supplierOptions.value = suppliers || []
   skuOptions.value = skus || []
 
-  // 待备货订单分两次拉取（已接单 / 备货中）后合并
+  // 待备货订单分三次拉取（已接单 / 数量待确认 / 备货中）后合并
   const results = await Promise.all(
     STOCK_NEEDED_STATUS.map((status) => getOrderList({ page: 1, page_size: 100, status }))
   )
@@ -338,6 +395,17 @@ onMounted(loadOptions)
   float: right;
   color: #909399;
   font-size: 12px;
+}
+
+.cap-tip {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #909399;
+}
+
+.cap-tip-over {
+  color: #f56c6c;
 }
 
 .summary-bar {

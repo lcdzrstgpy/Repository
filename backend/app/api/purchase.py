@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.core.response import BizException, NotFoundException, normalize_page, ok, paginate
 from app.core.security import require_roles
 from app.models.basic import Partner, Product, ProductSku, Warehouse
-from app.models.order import SalesOrder
+from app.models.order import SalesOrder, SalesOrderItem
 from app.models.purchase import (
     PURCHASE_IN_STATUS_DONE,
     PURCHASE_STATUS_APPROVED,
@@ -31,6 +31,7 @@ from app.models.purchase import (
 )
 from app.models.user import SysUser
 from app.schemas.purchase import (
+    PurchaseItemIn,
     PurchaseOrderCreateIn,
     PurchaseReceiveIn,
     purchase_in_brief,
@@ -187,6 +188,45 @@ def generate_purchase_in_no(db: Session) -> str:
     return f"{prefix}{seq:04d}"
 
 
+def check_purchase_price_limit(
+    db: Session,
+    sales_order_id: int,
+    items: list[PurchaseItemIn],
+    sku_map: dict[int, ProductSku],
+) -> None:
+    """校验采购价不高于关联销售订单行的预计成本（契约 16.3 / 17.3）。
+
+    匹配方式：按 `sku_id` 在该销售订单下找到对应订单行，取其 `expect_price` 作为上限。
+    - 订单里没有该 SKU（例如自主补货的 SKU）→ 跳过校验，不报错；
+    - 同一 SKU 对应多行时取最小值（最严格的上限）；
+    - 超出时返回 code=1001，msg 例如「SKU001 的采购价 15.00 高于运营填写的预计成本 12.00」。
+    """
+    rows = db.execute(
+        select(SalesOrderItem.sku_id, SalesOrderItem.expect_price).where(
+            SalesOrderItem.order_id == sales_order_id,
+            SalesOrderItem.sku_id.is_not(None),
+        )
+    ).all()
+
+    limits: dict[int, Decimal] = {}
+    for sku_id, expect_price in rows:
+        limit = Decimal(expect_price or 0)
+        current = limits.get(sku_id)
+        limits[sku_id] = limit if current is None else min(current, limit)
+
+    for item in items:
+        limit = limits.get(item.sku_id)
+        if limit is None:
+            continue  # 该 SKU 不在关联订单里，跳过校验
+        price = Decimal(item.price or 0)
+        if price > limit:
+            sku = sku_map.get(item.sku_id)
+            sku_code = sku.sku_code if sku else f"id={item.sku_id}"
+            raise BizException(
+                f"{sku_code} 的采购价 {price:.2f} 高于运营填写的预计成本 {limit:.2f}"
+            )
+
+
 # ---------------------------------------------------------------- 采购单接口
 @router.post("", summary="创建采购单")
 def create_purchase_order(
@@ -218,6 +258,11 @@ def create_purchase_order(
             raise BizException(f"SKU(id={sku_id})不存在")
         if sku.status != 1:
             raise BizException(f"SKU「{sku.sku_code}」已停用，无法采购")
+
+    # 契约 17.3：关联了销售订单时，采购价不得高于对应订单行的预计成本；
+    # 未关联销售订单（自主补货）不做校验。
+    if payload.sales_order_id is not None:
+        check_purchase_price_limit(db, payload.sales_order_id, payload.items, sku_map)
 
     # 后端汇总总额，不信任前端传值
     total_count = sum((item.count for item in payload.items), Decimal("0"))

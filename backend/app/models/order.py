@@ -1,4 +1,10 @@
-"""销售订单模型（契约 4.6 / 4.7）与状态定义（契约 3.2、第六节）。"""
+"""销售订单模型（契约 17.1 / 17.2，覆盖 4.6 / 4.7）与状态定义（契约 3.2、第六节）。
+
+六阶段起订单改为「运营录入外部平台订单」模式：
+- 订单号 `no` 由运营录入（外部平台单号），仍是唯一索引；
+- 明细不再直接选系统 SKU，而是录入商品名 + 货号（老品）或勾选新品；
+- 明细 `sku_id` 可空，由仓储端「关联货号」后回填，为空表示尚未关联。
+"""
 
 from datetime import datetime
 from decimal import Decimal
@@ -9,9 +15,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base, TimestampMixin
 
-# 订单状态值（契约 3.2）
+# 订单状态值（契约 3.2 / 第十八节）
 ORDER_STATUS_PENDING = 10  # 待接单
 ORDER_STATUS_CLAIMED = 20  # 已接单
+ORDER_STATUS_QUANTITY_CONFIRM = 25  # 数量待确认（仓储绑完所有货号后系统自动进入）
 ORDER_STATUS_PREPARING = 30  # 备货中
 ORDER_STATUS_SHIPPED = 40  # 已发货
 ORDER_STATUS_FINISHED = 50  # 已完成
@@ -21,6 +28,7 @@ ORDER_STATUS_CANCELLED = 90  # 已取消
 ORDER_STATUS_TEXT: dict[int, str] = {
     ORDER_STATUS_PENDING: "待接单",
     ORDER_STATUS_CLAIMED: "已接单",
+    ORDER_STATUS_QUANTITY_CONFIRM: "数量待确认",
     ORDER_STATUS_PREPARING: "备货中",
     ORDER_STATUS_SHIPPED: "已发货",
     ORDER_STATUS_FINISHED: "已完成",
@@ -31,15 +39,21 @@ ORDER_STATUS_TEXT: dict[int, str] = {
 AUDIT_STATUS_UNAUDITED = 0  # 未审批
 AUDIT_STATUS_AUDITED = 1  # 已审批
 
-# 状态流转合法表（契约第六节）
+# 状态流转合法表（契约第十八节）
 # 键：操作名；值：(允许的当前状态集合, 目标状态)
+# 注意：原「备货」(20 → 30) 路径已废弃，进入备货中统一由运营的 confirm-quantity 触发。
 ORDER_TRANSITIONS: dict[str, tuple[set[int], int]] = {
     "接单": ({ORDER_STATUS_PENDING}, ORDER_STATUS_CLAIMED),
-    "备货": ({ORDER_STATUS_CLAIMED}, ORDER_STATUS_PREPARING),
+    "确认数量": ({ORDER_STATUS_QUANTITY_CONFIRM}, ORDER_STATUS_PREPARING),
     "发货": ({ORDER_STATUS_PREPARING}, ORDER_STATUS_SHIPPED),
     "确认完成": ({ORDER_STATUS_SHIPPED}, ORDER_STATUS_FINISHED),
     "取消": (
-        {ORDER_STATUS_PENDING, ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING},
+        {
+            ORDER_STATUS_PENDING,
+            ORDER_STATUS_CLAIMED,
+            ORDER_STATUS_QUANTITY_CONFIRM,
+            ORDER_STATUS_PREPARING,
+        },
         ORDER_STATUS_CANCELLED,
     ),
 }
@@ -76,10 +90,7 @@ class SalesOrder(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True, comment="主键")
     no: Mapped[str] = mapped_column(
-        String(32), unique=True, nullable=False, comment="单号 SO+yyyyMMdd+4位流水"
-    )
-    customer_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("partner.id"), nullable=False, comment="客户 partner.id"
+        String(32), unique=True, nullable=False, comment="运营录入的订单号（外部平台单号）"
     )
     status: Mapped[int] = mapped_column(
         TINYINT, nullable=False, default=ORDER_STATUS_PENDING, comment="见契约 3.2"
@@ -104,7 +115,7 @@ class SalesOrder(Base, TimestampMixin):
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="总数量（明细汇总）"
     )
     total_price: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="总金额（明细汇总）"
+        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="预计总成本（明细汇总）"
     )
     created_by: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("sys_user.id"), nullable=False, comment="下单人 user_id"
@@ -124,8 +135,20 @@ class SalesOrderItem(Base, TimestampMixin):
     order_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("sales_order.id"), nullable=False, comment="关联 sales_order"
     )
-    sku_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("product_sku.id"), nullable=False, comment="关联 product_sku"
+    product_name: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="", comment="商品名（运营录入的自由文本）"
+    )
+    sku_code: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="货号（运营录入，与 is_new 二选一）"
+    )
+    is_new: Mapped[int] = mapped_column(
+        TINYINT, nullable=False, default=0, comment="是否新品：0 否 / 1 是（与 sku_code 二选一）"
+    )
+    sku_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("product_sku.id"),
+        nullable=True,
+        comment="关联 product_sku，由仓库关联货号后回填；为空表示尚未关联",
     )
     count: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="下单数量"
@@ -133,11 +156,11 @@ class SalesOrderItem(Base, TimestampMixin):
     out_count: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="已出库数量"
     )
-    price: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="单价"
+    expect_price: Mapped[Decimal] = mapped_column(
+        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="预计成本单价（运营填写）"
     )
     total_price: Mapped[Decimal] = mapped_column(
-        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="小计 = count × price"
+        Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="小计 = count × expect_price"
     )
 
     order: Mapped["SalesOrder"] = relationship(back_populates="items")

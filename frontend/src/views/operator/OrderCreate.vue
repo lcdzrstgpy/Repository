@@ -14,30 +14,35 @@
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-row :gutter="16">
           <el-col :span="10">
-            <el-form-item label="客户" prop="customer_id">
-              <el-select
-                v-model="form.customer_id"
-                placeholder="请选择客户"
-                filterable
+            <el-form-item label="订单号" prop="no">
+              <el-input
+                v-model="form.no"
+                placeholder="请填写外部平台订单号"
+                maxlength="32"
                 clearable
-                style="width: 100%"
-              >
-                <el-option
-                  v-for="item in customerOptions"
-                  :key="item.id"
-                  :label="item.name"
-                  :value="item.id"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
           <el-col :span="14">
             <el-form-item label="备注">
-              <el-input v-model="form.remark" placeholder="选填，如：加急" maxlength="500" show-word-limit />
+              <el-input
+                v-model="form.remark"
+                placeholder="选填，如：加急"
+                maxlength="500"
+                show-word-limit
+              />
             </el-form-item>
           </el-col>
         </el-row>
       </el-form>
+
+      <el-alert
+        class="rule-tip"
+        type="info"
+        :closable="false"
+        show-icon
+        title="每行商品需填写货号，或勾选「新品」由仓库新建货号，二者必选其一。"
+      />
 
       <div class="table-toolbar">
         <span class="section-title">订单明细</span>
@@ -49,50 +54,48 @@
 
       <el-table :data="form.items" border>
         <el-table-column type="index" label="序号" width="60" align="center" />
-        <el-table-column label="SKU" min-width="230">
+        <el-table-column label="商品名" min-width="180">
           <template #default="{ row }">
-            <el-select
-              v-model="row.sku_id"
-              placeholder="请选择 SKU"
-              filterable
-              style="width: 100%"
-              @change="(val) => handleSkuChange(row, val)"
-            >
-              <el-option
-                v-for="sku in skuOptions"
-                :key="sku.id"
-                :label="`${sku.sku_code} ${sku.name}`"
-                :value="sku.id"
-              >
-                <span>{{ sku.sku_code }} · {{ sku.name }}</span>
-                <span class="option-price">￥{{ formatAmount(sku.price) }}</span>
-              </el-option>
-            </el-select>
+            <el-input v-model="row.product_name" placeholder="请输入商品名" maxlength="200" />
           </template>
         </el-table-column>
-        <el-table-column label="商品名称" min-width="140">
-          <template #default="{ row }">{{ findSku(row.sku_id)?.name || '-' }}</template>
+        <el-table-column label="新品" width="80" align="center">
+          <template #default="{ row }">
+            <el-checkbox
+              v-model="row.is_new"
+              :true-value="1"
+              :false-value="0"
+              @change="handleNewChange(row)"
+            />
+          </template>
         </el-table-column>
-        <el-table-column label="规格" min-width="120">
-          <template #default="{ row }">{{ findSku(row.sku_id)?.spec || '-' }}</template>
+        <el-table-column label="货号" min-width="170">
+          <template #default="{ row }">
+            <el-input
+              v-model="row.sku_code"
+              :disabled="row.is_new === 1"
+              :placeholder="row.is_new === 1 ? '新品由仓库新建货号' : '请输入货号'"
+              maxlength="64"
+            />
+          </template>
         </el-table-column>
-        <el-table-column label="数量" width="140">
+        <el-table-column label="数量" width="130">
           <template #default="{ row }">
             <el-input-number
               v-model="row.count"
-              :min="0.01"
-              :precision="2"
+              :min="1"
+              :precision="0"
               :step="1"
               controls-position="right"
               style="width: 100%"
             />
           </template>
         </el-table-column>
-        <el-table-column label="单价（元）" width="150">
+        <el-table-column label="预计成本（元）" width="150">
           <template #default="{ row }">
             <el-input-number
-              v-model="row.price"
-              :min="0"
+              v-model="row.expect_price"
+              :min="0.01"
               :precision="2"
               :step="1"
               controls-position="right"
@@ -105,7 +108,12 @@
         </el-table-column>
         <el-table-column label="操作" width="80" align="center">
           <template #default="{ $index }">
-            <el-button link type="danger" :disabled="form.items.length === 1" @click="removeItem($index)">
+            <el-button
+              link
+              type="danger"
+              :disabled="form.items.length === 1"
+              @click="removeItem($index)"
+            >
               删除
             </el-button>
           </template>
@@ -115,7 +123,7 @@
       <!-- 合计 -->
       <div class="summary-bar">
         <span>合计数量：<b>{{ formatCount(totalCount) }}</b></span>
-        <span>合计金额：<b class="amount">￥{{ formatAmount(totalPrice) }}</b></span>
+        <span>合计预计成本：<b class="amount">￥{{ formatAmount(totalPrice) }}</b></span>
       </div>
 
       <div class="footer-actions">
@@ -127,62 +135,53 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { createOrder } from '@/api/order'
-import { getPartnerOptions, getSkuOptions } from '@/api/basic'
 import { formatAmount, formatCount } from '@/utils/format'
 
 const router = useRouter()
 
 const formRef = ref(null)
 const submitting = ref(false)
-const customerOptions = ref([])
-const skuOptions = ref([])
 
 const form = reactive({
-  customer_id: null,
+  no: '',
   remark: '',
-  // 明细行：sku_id 关联 SKU，count 数量，price 单价
+  // 明细行：product_name 商品名 / sku_code 货号 / is_new 是否新品 / count 数量 / expect_price 预计成本
   items: [createEmptyItem()]
 })
 
 const rules = {
-  customer_id: [{ required: true, message: '请选择客户', trigger: 'change' }]
+  no: [{ required: true, message: '请填写外部平台订单号', trigger: 'blur' }]
 }
 
 function createEmptyItem() {
-  return { sku_id: null, count: 1, price: 0 }
+  return { product_name: '', sku_code: '', is_new: 0, count: 1, expect_price: null }
 }
 
-/** 根据 sku_id 找到 SKU 选项 */
-function findSku(skuId) {
-  return skuOptions.value.find((item) => item.id === skuId)
+/** 勾选新品后，货号输入框禁用并清空（二选一） */
+function handleNewChange(row) {
+  if (row.is_new === 1) {
+    row.sku_code = ''
+  }
 }
 
-/** 明细行小计 */
+/** 明细行小计 = 数量 × 预计成本 */
 function itemTotal(row) {
   const count = Number(row.count) || 0
-  const price = Number(row.price) || 0
+  const price = Number(row.expect_price) || 0
   return count * price
 }
 
-/** 总数量 */
+/** 合计数量 */
 const totalCount = computed(() =>
   form.items.reduce((sum, row) => sum + (Number(row.count) || 0), 0)
 )
 
-/** 总金额 */
+/** 合计预计成本 */
 const totalPrice = computed(() => form.items.reduce((sum, row) => sum + itemTotal(row), 0))
-
-/** 选择 SKU 后自动带出单价 */
-function handleSkuChange(row, skuId) {
-  const sku = findSku(skuId)
-  if (sku) {
-    row.price = Number(sku.price) || 0
-  }
-}
 
 function addItem() {
   form.items.push(createEmptyItem())
@@ -192,7 +191,7 @@ function removeItem(index) {
   form.items.splice(index, 1)
 }
 
-/** 校验明细行 */
+/** 提交前校验：商品名、货号/新品二选一、数量为正整数、预计成本 > 0、货号不重复 */
 function validateItems() {
   if (!form.items.length) {
     ElMessage.warning('请至少添加一条订单明细')
@@ -200,27 +199,71 @@ function validateItems() {
   }
   for (let i = 0; i < form.items.length; i += 1) {
     const row = form.items[i]
-    if (!row.sku_id) {
-      ElMessage.warning(`第 ${i + 1} 行未选择 SKU`)
+    const line = `第 ${i + 1} 行`
+    if (!row.product_name || !row.product_name.trim()) {
+      ElMessage.warning(`${line}商品名不能为空`)
       return false
     }
-    if (!row.count || Number(row.count) <= 0) {
-      ElMessage.warning(`第 ${i + 1} 行数量必须大于 0`)
+    if (row.is_new === 1) {
+      // 勾选新品：货号由仓库新建，前端无需填
+    } else if (!row.sku_code || !row.sku_code.trim()) {
+      ElMessage.warning(`${line}请填写货号，或勾选「新品」`)
       return false
     }
-    if (row.price === null || row.price === undefined || Number(row.price) < 0) {
-      ElMessage.warning(`第 ${i + 1} 行单价不合法`)
+    if (!Number.isInteger(Number(row.count)) || Number(row.count) < 1) {
+      ElMessage.warning(`${line}数量必须是大于 0 的整数`)
+      return false
+    }
+    if (
+      row.expect_price === null ||
+      row.expect_price === undefined ||
+      Number(row.expect_price) <= 0
+    ) {
+      ElMessage.warning(`${line}预计成本必须大于 0`)
       return false
     }
   }
 
-  // 同一 SKU 不允许重复出现
-  const skuIds = form.items.map((row) => row.sku_id)
-  if (new Set(skuIds).size !== skuIds.length) {
-    ElMessage.warning('同一 SKU 不能重复添加，请合并数量')
+  // 同一订单内货号不允许重复（新品行不参与比较）
+  const codes = form.items
+    .filter((row) => row.is_new !== 1 && row.sku_code && row.sku_code.trim())
+    .map((row) => row.sku_code.trim())
+  if (new Set(codes).size !== codes.length) {
+    ElMessage.warning('同一订单内货号不能重复，请合并相同货号的数量')
     return false
   }
   return true
+}
+
+/** 转义 HTML，避免商品名里的特殊字符破坏确认弹窗结构 */
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** 数量二次确认弹窗内容：逐行列出「商品名 × 数量」与合计 */
+function buildConfirmHtml() {
+  const lines = form.items
+    .map(
+      (row) =>
+        `<li style="line-height:1.9">${escapeHtml(row.product_name.trim())} × ${formatCount(
+          row.count
+        )}</li>`
+    )
+    .join('')
+  return `
+    <div>
+      <p style="margin:0 0 8px">请再次核对本次提交的商品数量：</p>
+      <ul style="margin:0 0 12px;padding-left:20px">${lines}</ul>
+      <p style="margin:0">
+        合计：<b>${formatCount(totalCount.value)}</b> 件，
+        预计成本：<b>￥${formatAmount(totalPrice.value)}</b>
+      </p>
+    </div>
+  `
 }
 
 async function handleSubmit() {
@@ -228,17 +271,37 @@ async function handleSubmit() {
   if (!valid) return
   if (!validateItems()) return
 
+  // 提交前二次确认数量（需求明确要求的环节）
+  try {
+    await ElMessageBox.confirm(buildConfirmHtml(), '请确认订单数量', {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: '确认提交',
+      cancelButtonText: '再核对一下',
+      type: 'warning'
+    })
+  } catch (e) {
+    return // 运营放弃提交
+  }
+
   submitting.value = true
   try {
-    // total_count / total_price 由后端汇总，前端不传
+    // total_count / total_price 由后端汇总，前端不传；每行 sku_code / is_new 二选一
     await createOrder({
-      customer_id: form.customer_id,
+      no: form.no.trim(),
       remark: form.remark,
-      items: form.items.map((row) => ({
-        sku_id: row.sku_id,
-        count: Number(row.count),
-        price: Number(row.price)
-      }))
+      items: form.items.map((row) => {
+        const item = {
+          product_name: row.product_name.trim(),
+          count: Number(row.count),
+          expect_price: Number(row.expect_price)
+        }
+        if (row.is_new === 1) {
+          item.is_new = 1
+        } else {
+          item.sku_code = row.sku_code.trim()
+        }
+        return item
+      })
     })
     ElMessage.success('订单创建成功，已进入订单池等待仓储接单')
     router.push('/operator/orders')
@@ -246,15 +309,6 @@ async function handleSubmit() {
     submitting.value = false
   }
 }
-
-/** 加载客户与 SKU 下拉选项 */
-async function loadOptions() {
-  const [customers, skus] = await Promise.all([getPartnerOptions(1), getSkuOptions()])
-  customerOptions.value = customers || []
-  skuOptions.value = skus || []
-}
-
-onMounted(loadOptions)
 </script>
 
 <style scoped>
@@ -272,10 +326,8 @@ onMounted(loadOptions)
   padding-left: 8px;
 }
 
-.option-price {
-  float: right;
-  color: #909399;
-  font-size: 12px;
+.rule-tip {
+  margin-bottom: 16px;
 }
 
 .summary-bar {

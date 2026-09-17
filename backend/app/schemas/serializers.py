@@ -3,7 +3,7 @@
 接口返回的是普通 dict（不走 response_model），由这里保证：
 - datetime 统一格式化为 "YYYY-MM-DD HH:MM:SS"
 - Decimal 统一转 float，前端可直接参与计算
-- 字段名严格对齐《接口契约》第五节的响应示例
+- 字段名严格对齐《接口契约》第五节的响应示例（订单部分以 19.4 为准）
 """
 
 from datetime import datetime
@@ -122,32 +122,44 @@ def partner_out(partner: Partner) -> dict:
 
 
 # ---------------------------------------------------------------- 订单
-def order_item_out(item: SalesOrderItem, sku: ProductSku | None, product: Product | None) -> dict:
-    """订单明细（契约 5.3 详情 items 元素）。"""
+def order_item_out(item: SalesOrderItem, sku: ProductSku | None = None) -> dict:
+    """订单明细（契约 19.4 详情 items 元素）。
+
+    注意两个货号字段语义不同，不可混用：
+    - `sku_code`：运营录入的货号，新品行为空；
+    - `sku_code_bound`：仓库关联成功后回填的实际货号，未关联（`sku_id` 为空）时为空。
+    商品名取运营录入的 `item.product_name`（自由文本），而不是系统 SKU 所属商品名。
+    """
     return {
         "id": item.id,
+        "product_name": item.product_name,
+        "sku_code": item.sku_code,
+        "is_new": _status_int(item.is_new),
         "sku_id": item.sku_id,
-        "sku_code": sku.sku_code if sku else None,
-        "product_name": product.name if product else None,
+        "sku_code_bound": sku.sku_code if sku else None,
         "spec": sku.spec if sku else None,
         "count": fmt_dec(item.count),
         "out_count": fmt_dec(item.out_count),
-        "price": fmt_dec(item.price),
+        "expect_price": fmt_dec(item.expect_price),
         "total_price": fmt_dec(item.total_price),
     }
 
 
 def order_brief(
     order: SalesOrder,
-    customer_name: str | None = None,
     created_by_name: str | None = None,
     claimed_by_name: str | None = None,
+    item_count: int = 0,
+    unbound_count: int = 0,
 ) -> dict:
-    """订单列表元素（契约 5.3 列表 list 元素）。"""
+    """订单列表元素（契约 19.4 列表 list 元素）。
+
+    `item_count` 为明细行数，`unbound_count` 为 `sku_id` 为空（尚未关联货号）的行数，
+    两者都由调用方批量算好后传入（详见 app/api/order.py 的 `_item_stats`）。
+    """
     return {
         "id": order.id,
         "no": order.no,
-        "customer_name": customer_name,
         "status": _status_int(order.status),
         "status_text": status_text(order.status),
         "total_count": fmt_dec(order.total_count),
@@ -157,19 +169,31 @@ def order_brief(
         "claimed_by_name": claimed_by_name,
         "created_at": fmt_dt(order.created_at),
         "shipped_at": fmt_dt(order.shipped_at),
+        "item_count": item_count,
+        "unbound_count": unbound_count,
     }
 
 
 def order_detail(
     order: SalesOrder,
-    customer_name: str | None = None,
     created_by_name: str | None = None,
     claimed_by_name: str | None = None,
     warehouse_name: str | None = None,
     items: list[dict] | None = None,
 ) -> dict:
-    """订单详情（列表元素 + 契约 5.3 详情追加字段）。"""
-    data = order_brief(order, customer_name, created_by_name, claimed_by_name)
+    """订单详情（列表元素 + 契约 19.4 详情追加字段）。
+
+    `all_sku_bound` 表示是否所有明细行都已关联货号，由明细数据算出，
+    仓储端据此判断能否进入「备货中」。
+    """
+    item_dicts = items or []
+    data = order_brief(
+        order,
+        created_by_name=created_by_name,
+        claimed_by_name=claimed_by_name,
+        item_count=len(item_dicts),
+        unbound_count=sum(1 for item in item_dicts if item.get("sku_id") is None),
+    )
     data.update(
         {
             "remark": order.remark,
@@ -179,7 +203,8 @@ def order_detail(
             "prepare_at": fmt_dt(order.prepare_at),
             "finished_at": fmt_dt(order.finished_at),
             "cancel_reason": order.cancel_reason,
-            "items": items or [],
+            "all_sku_bound": all(item.get("sku_id") is not None for item in item_dicts),
+            "items": item_dicts,
         }
     )
     return data

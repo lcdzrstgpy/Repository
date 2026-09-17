@@ -126,11 +126,13 @@ SELECT 3, 1, 100.00, 0.00 WHERE NOT EXISTS (
 
 -- -----------------------------------------------------------------------------
 -- 7. 示例订单（status=10 待接单，供仓储端测试）
---    单号 SO202609160001，下单人 operator1（id=2），客户为第一个客户（id=1）
---    明细：SKU001 × 10 @25.00 = 250.00
---          SKU002 ×  5 @18.50 =  92.50
+--    单号 TB20260917001，下单人 operator1（id=2）
+--    明细（两行，分别覆盖「老品填货号」与「新品勾标记」两种分支）：
+--      行 1：商品A     货号 SKU001（系统里真实存在，仓库端「关联货号」可直接匹配）
+--             × 10 @25.00 = 250.00，sku_id 留空，待仓库关联
+--      行 2：新品手机壳 未填货号、is_new = 1 ×  5 @18.50 =  92.50，sku_id 留空
 --    汇总：total_count = 15.00，total_price = 342.50
---    ⚠ 单号 SO202609160001 同时是两条初始化路径的幂等键：
+--    ⚠ 单号 TB20260917001 同时是两条初始化路径的幂等键：
 --       backend/init_data.py 的 SAMPLE_ORDER_NO 必须与本处保持一致，
 --       remark 文案也统一为「示例订单，供仓储端接单测试」。
 --    ⚠ 幂等语义必须与 backend/init_data.py 的 init_sample_order() 一致：
@@ -139,27 +141,36 @@ SELECT 3, 1, 100.00, 0.00 WHERE NOT EXISTS (
 --      已经流转到「已完成 / 已取消」的示例订单强行打回「待接单」。
 -- -----------------------------------------------------------------------------
 INSERT INTO `sales_order` (
-  `id`, `no`, `customer_id`, `status`, `audit_status`,
+  `id`, `no`, `status`, `audit_status`,
   `total_count`, `total_price`, `remark`, `created_by`, `created_at`
 )
-SELECT 1, 'SO202609160001', 1, 10, 0,
-       15.00, 342.50, '示例订单，供仓储端接单测试', 2, '2026-09-16 10:00:00'
-WHERE NOT EXISTS (SELECT 1 FROM `sales_order` WHERE `no` = 'SO202609160001');
+SELECT 1, 'TB20260917001', 10, 0,
+       15.00, 342.50, '示例订单，供仓储端接单测试', 2, '2026-09-17 10:00:00'
+WHERE NOT EXISTS (SELECT 1 FROM `sales_order` WHERE `no` = 'TB20260917001');
 
 -- -----------------------------------------------------------------------------
--- 8. 示例订单明细（2 条）
+-- 8. 示例订单明细（2 条：老品行 + 新品行）
 --    注：明细表无业务唯一键，用 INSERT ... SELECT ... WHERE NOT EXISTS 保证幂等
+--    ⚠ sku_id 一律留空：示例订单用于测试仓库端「关联货号」流程，
+--      行 1 的 sku_code = SKU001 在 product_sku 里真实存在，可直接匹配成功。
 -- -----------------------------------------------------------------------------
-INSERT INTO `sales_order_item` (`id`, `order_id`, `sku_id`, `count`, `out_count`, `price`, `total_price`)
-SELECT 1, 1, 1, 10.00, 0.00, 25.00, 250.00
+INSERT INTO `sales_order_item` (
+  `id`, `order_id`, `product_name`, `sku_code`, `is_new`, `sku_id`,
+  `count`, `out_count`, `expect_price`, `total_price`
+)
+SELECT 1, 1, '商品A', 'SKU001', 0, NULL, 10.00, 0.00, 25.00, 250.00
 WHERE NOT EXISTS (SELECT 1 FROM `sales_order_item` WHERE `id` = 1);
 
-INSERT INTO `sales_order_item` (`id`, `order_id`, `sku_id`, `count`, `out_count`, `price`, `total_price`)
-SELECT 2, 1, 2, 5.00, 0.00, 18.50, 92.50
+INSERT INTO `sales_order_item` (
+  `id`, `order_id`, `product_name`, `sku_code`, `is_new`, `sku_id`,
+  `count`, `out_count`, `expect_price`, `total_price`
+)
+SELECT 2, 1, '新品手机壳', NULL, 1, NULL, 5.00, 0.00, 18.50, 92.50
 WHERE NOT EXISTS (SELECT 1 FROM `sales_order_item` WHERE `id` = 2);
 
 -- =============================================================================
 -- 初始化数据写入完成
 --   用户 3 / 仓库 2 / 商品 3 / SKU 3 / 往来单位 4 / 库存 3 / 示例订单 1 + 明细 2
+--   示例订单明细：1 行老品（货号 SKU001）+ 1 行新品（is_new=1），sku_id 均待仓库关联
 -- 默认账号：admin、operator1、warehouse1，密码均为 admin123
 -- =============================================================================

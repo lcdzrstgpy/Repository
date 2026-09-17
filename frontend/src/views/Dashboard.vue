@@ -45,11 +45,11 @@
       </template>
       <el-descriptions :column="1" border>
         <el-descriptions-item label="订单流转">
-          运营下单（待接单 10）→ 仓储接单（已接单 20）→ 开始备货（备货中 30）→ 发货并回传物流单号（已发货 40）→
-          运营确认完成（已完成 50）
+          运营下单（待接单 10）→ 仓储接单（已接单 20）→ 仓储绑完货号（数量待确认 25）→
+          运营确认数量（备货中 30）→ 仓储发货并回传物流单号（已发货 40）→ 运营确认完成（已完成 50）
         </el-descriptions-item>
         <el-descriptions-item label="取消规则">
-          仅「待接单 / 已接单 / 备货中」可取消，取消后状态为「已取消 90」，需填写取消原因
+          仅「待接单 / 已接单 / 数量待确认 / 备货中」可取消，取消后状态为「已取消 90」，需填写取消原因
         </el-descriptions-item>
         <el-descriptions-item label="数据可见性">
           运营只能看到自己创建的订单；仓储可看到全部待接单订单；管理员可查看全部数据
@@ -81,8 +81,8 @@ const stats = ref({
   alerts: 0
 })
 
-/** 可查看库存预警的角色：warehouse / operator / admin（契约 19） */
-const canViewAlerts = computed(() => ['warehouse', 'operator', 'admin'].includes(userStore.role))
+/** 库存预警由仓储或管理员处理；运营使用“货号查询”查看只读库存。 */
+const canViewAlerts = computed(() => ['warehouse', 'admin'].includes(userStore.role))
 
 /** 问候语按当前时间段变化 */
 const greeting = computed(() => {

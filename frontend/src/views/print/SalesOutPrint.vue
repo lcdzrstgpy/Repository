@@ -27,10 +27,6 @@
             <span class="meta-value">{{ detail.created_at || '-' }}</span>
           </div>
           <div class="meta-item">
-            <span class="meta-label">客户名称：</span>
-            <span class="meta-value">{{ detail.customer_name || '-' }}</span>
-          </div>
-          <div class="meta-item">
             <span class="meta-label">出库仓库：</span>
             <span class="meta-value">{{ detail.warehouse_name || '-' }}</span>
           </div>

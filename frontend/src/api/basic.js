@@ -39,3 +39,8 @@ export function getSkuOptions() {
 export function getWarehouseOptions() {
   return request.get('/api/warehouses/options')
 }
+
+/** 运营货号库存查询：只读展示各仓库库存余额。 */
+export function queryItems(keyword) {
+  return request.get('/api/item-query', { params: keyword ? { keyword } : {} })
+}

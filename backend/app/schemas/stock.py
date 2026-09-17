@@ -46,20 +46,16 @@ def sales_out_brief(
     out: SalesOut,
     warehouse_name: str | None = None,
     created_by_name: str | None = None,
-    customer_name: str | None = None,
 ) -> dict:
     """出库单列表元素（契约 9.4 列表）。
 
-    `customer_name`（往来单位）不在 sales_out 表上，由调用方经
-    `order_id → sales_order.customer_id → partner.name` 批量查出后传入，
-    供契约第十三节的单据打印使用。
+    六阶段（契约 17.1 / 19.4）：订单删除客户字段，出库单不再返回客户名。
     """
     return {
         "id": out.id,
         "no": out.no,
         "order_id": out.order_id,
         "order_no": out.order_no,
-        "customer_name": customer_name,
         "warehouse_id": out.warehouse_id,
         "warehouse_name": warehouse_name,
         "status": int(out.status) if out.status is not None else 0,
@@ -77,11 +73,10 @@ def sales_out_detail(
     out: SalesOut,
     warehouse_name: str | None = None,
     created_by_name: str | None = None,
-    customer_name: str | None = None,
     items: list[dict] | None = None,
 ) -> dict:
     """出库单详情（列表元素 + 备注 + 明细）。"""
-    data = sales_out_brief(out, warehouse_name, created_by_name, customer_name)
+    data = sales_out_brief(out, warehouse_name, created_by_name)
     data.update(
         {
             "remark": out.remark,

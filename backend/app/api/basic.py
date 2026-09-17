@@ -20,9 +20,10 @@ from app.core.database import get_db
 from app.core.response import BizException, NotFoundException, normalize_page, ok, paginate
 from app.core.security import hash_password, require_roles
 from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.inventory import Inventory
 from app.models.user import SysUser
 from app.schemas import basic as bs
-from app.schemas.serializers import partner_out, product_out, sku_out, user_out, warehouse_out
+from app.schemas.serializers import fmt_dec, partner_out, product_out, sku_out, user_out, warehouse_out
 
 # ---------------------------------------------------------------- 通用 CRUD 工厂
 
@@ -303,6 +304,70 @@ sku_router = build_crud_router(
 )
 
 
+# ---------------------------------------------------------------- 运营货号库存查询
+
+item_router = APIRouter(prefix="/api/item-query", tags=["运营侧·货号查询"])
+
+
+@item_router.get("", summary="货号及库存查询")
+def item_query(
+    keyword: str | None = Query(None, description="货号 / 商品名称 / 规格"),
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
+):
+    """按货号或商品资料查询，只读返回每个仓库的库存余额。"""
+    stmt = select(ProductSku, Product).join(Product, Product.id == ProductSku.product_id)
+    kw = (keyword or "").strip()
+    if kw:
+        pattern = f"%{kw}%"
+        stmt = stmt.where(
+            or_(
+                ProductSku.sku_code.like(pattern),
+                ProductSku.spec.like(pattern),
+                Product.name.like(pattern),
+            )
+        )
+
+    rows = db.execute(
+        stmt.where(ProductSku.status == 1).order_by(ProductSku.id.desc())
+    ).all()
+    sku_ids = [sku.id for sku, _product in rows]
+    stock_map: dict[int, list[dict]] = {}
+    if sku_ids:
+        inventories = db.execute(
+            select(Inventory, Warehouse)
+            .join(Warehouse, Warehouse.id == Inventory.warehouse_id)
+            .where(Inventory.sku_id.in_(sku_ids))
+            .order_by(Inventory.sku_id.asc(), Warehouse.id.asc())
+        ).all()
+        for inventory, warehouse in inventories:
+            quantity = inventory.quantity or 0
+            reserved = inventory.reserved_quantity or 0
+            stock_map.setdefault(inventory.sku_id, []).append(
+                {
+                    "warehouse_id": warehouse.id,
+                    "warehouse_name": warehouse.name,
+                    "quantity": fmt_dec(quantity),
+                    "reserved_quantity": fmt_dec(reserved),
+                    "available_quantity": fmt_dec(quantity - reserved),
+                }
+            )
+
+    return ok(
+        [
+            {
+                "id": sku.id,
+                "item_no": sku.sku_code,
+                "sku_code": sku.sku_code,
+                "product_name": product.name,
+                "spec": sku.spec,
+                "stocks": stock_map.get(sku.id, []),
+            }
+            for sku, product in rows
+        ]
+    )
+
+
 def _partner_options(db: Session, params: dict) -> list[dict]:
     """往来单位下拉选项，type 可选（1 客户 / 2 供应商 / 3 两者）。"""
     stmt = select(Partner).where(Partner.status == 1)
@@ -370,6 +435,7 @@ def register_basic_routers(app) -> None:
         warehouse_router,
         product_router,
         sku_router,
+        item_router,
         partner_router,
         user_router,
     ):

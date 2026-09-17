@@ -1,11 +1,14 @@
-"""运营侧订单接口（契约 5.3）：下单、列表、详情、取消、确认完成。"""
+"""运营侧订单接口（契约 19，覆盖 5.3）：下单、列表、详情、确认数量、取消、确认完成。
 
-import logging
+六阶段起运营录入的是外部平台订单：请求体只有订单号 + 明细（商品名 / 货号或新品 /
+数量 / 预计成本），不再有客户字段；明细的 `sku_id` 留空，由仓储端「关联货号」回填。
+"""
+
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -19,23 +22,18 @@ from app.core.response import (
     paginate,
 )
 from app.core.security import require_roles
-from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.basic import ProductSku, Warehouse
 from app.models.order import (
-    ORDER_STATUS_CLAIMED,
     ORDER_STATUS_PENDING,
-    ORDER_STATUS_PREPARING,
     SalesOrder,
     SalesOrderItem,
     ensure_transition,
 )
 from app.models.user import SysUser
-from app.schemas.order import SalesOrderCancelIn, SalesOrderCreateIn
+from app.schemas.order import ConfirmQuantityIn, SalesOrderCancelIn, SalesOrderCreateIn
 from app.schemas.serializers import order_brief, order_detail, order_item_out
-from app.services.inventory_service import release_inventory
 
 router = APIRouter(prefix="/api/sales-orders", tags=["运营侧·订单"])
-
-logger = logging.getLogger(__name__)
 
 # 金额统一保留 2 位小数，四舍五入
 CENT = Decimal("0.01")
@@ -68,18 +66,12 @@ def ensure_visible(order: SalesOrder, current_user: SysUser) -> None:
         raise ForbiddenException("无权操作他人创建的订单")
 
 
-def _name_maps(db: Session, orders: list[SalesOrder]) -> tuple[dict, dict, dict]:
-    """批量取客户名、用户名、仓库名，避免逐行查询。"""
-    customer_ids = {o.customer_id for o in orders if o.customer_id}
+def _name_maps(db: Session, orders: list[SalesOrder]) -> tuple[dict, dict]:
+    """批量取用户名、仓库名，避免逐行查询。"""
     user_ids = {o.created_by for o in orders if o.created_by}
     user_ids |= {o.claimed_by for o in orders if o.claimed_by}
     warehouse_ids = {o.warehouse_id for o in orders if o.warehouse_id}
 
-    customers = (
-        {p.id: p.name for p in db.scalars(select(Partner).where(Partner.id.in_(customer_ids)))}
-        if customer_ids
-        else {}
-    )
     users = (
         {
             u.id: (u.real_name or u.username)
@@ -93,52 +85,66 @@ def _name_maps(db: Session, orders: list[SalesOrder]) -> tuple[dict, dict, dict]
         if warehouse_ids
         else {}
     )
-    return customers, users, warehouses
+    return users, warehouses
+
+
+def _item_stats(db: Session, order_ids: list[int]) -> dict[int, tuple[int, int]]:
+    """批量统计订单的明细行数与未关联货号行数。
+
+    一次 `GROUP BY` 查出整页数据，避免逐单查明细造成 N+1。
+    返回 `{order_id: (item_count, unbound_count)}`，没有明细的订单不在结果里。
+    """
+    if not order_ids:
+        return {}
+    rows = db.execute(
+        select(
+            SalesOrderItem.order_id,
+            func.count(SalesOrderItem.id),
+            func.sum(case((SalesOrderItem.sku_id.is_(None), 1), else_=0)),
+        )
+        .where(SalesOrderItem.order_id.in_(order_ids))
+        .group_by(SalesOrderItem.order_id)
+    ).all()
+    return {
+        int(order_id): (int(item_count or 0), int(unbound_count or 0))
+        for order_id, item_count, unbound_count in rows
+    }
 
 
 def build_order_briefs(db: Session, orders: list[SalesOrder]) -> list[dict]:
-    """订单列表元素批量序列化（契约 5.3 列表）。"""
+    """订单列表元素批量序列化（契约 19.4 列表）。"""
     if not orders:
         return []
-    customers, users, _ = _name_maps(db, orders)
-    return [
-        order_brief(
-            order,
-            customer_name=customers.get(order.customer_id),
-            created_by_name=users.get(order.created_by),
-            claimed_by_name=users.get(order.claimed_by),
+    users, _ = _name_maps(db, orders)
+    stats = _item_stats(db, [order.id for order in orders])
+    briefs = []
+    for order in orders:
+        item_count, unbound_count = stats.get(order.id, (0, 0))
+        briefs.append(
+            order_brief(
+                order,
+                created_by_name=users.get(order.created_by),
+                claimed_by_name=users.get(order.claimed_by),
+                item_count=item_count,
+                unbound_count=unbound_count,
+            )
         )
-        for order in orders
-    ]
+    return briefs
 
 
 def build_order_detail(db: Session, order: SalesOrder) -> dict:
-    """订单详情序列化（契约 5.3 详情，含明细）。"""
-    customers, users, warehouses = _name_maps(db, [order])
+    """订单详情序列化（契约 19.4 详情，含明细）。"""
+    users, warehouses = _name_maps(db, [order])
     items = list(order.items)
-    sku_ids = [item.sku_id for item in items]
+    sku_ids = [item.sku_id for item in items if item.sku_id is not None]
     skus = (
         {s.id: s for s in db.scalars(select(ProductSku).where(ProductSku.id.in_(sku_ids)))}
         if sku_ids
         else {}
     )
-    product_ids = {s.product_id for s in skus.values()}
-    products = (
-        {p.id: p for p in db.scalars(select(Product).where(Product.id.in_(product_ids)))}
-        if product_ids
-        else {}
-    )
-    item_dicts = [
-        order_item_out(
-            item,
-            skus.get(item.sku_id),
-            products.get(skus[item.sku_id].product_id) if item.sku_id in skus else None,
-        )
-        for item in items
-    ]
+    item_dicts = [order_item_out(item, skus.get(item.sku_id)) for item in items]
     return order_detail(
         order,
-        customer_name=customers.get(order.customer_id),
         created_by_name=users.get(order.created_by),
         claimed_by_name=users.get(order.claimed_by),
         warehouse_name=warehouses.get(order.warehouse_id),
@@ -154,31 +160,20 @@ def build_order_outbound_changes(order: SalesOrder, warehouse_id: int) -> list[d
 
     四阶段的「接单预留 / 发货释放 / 取消释放」三处共用同一个构造方式，
     保证预留的量与释放的量永远一致。数量为 0 的明细直接跳过。
+
+    六阶段起 `sku_id` 可空（尚未关联货号），这类行没有 SKU 可预留 / 释放，直接跳过；
+    契约第十八节要求「全部关联完成才允许进入备货」，因此真正出库时不会再有空行。
     """
     changes: list[dict] = []
     for item in order.items:
+        if item.sku_id is None:
+            continue
         count = Decimal(item.count or 0) - Decimal(item.out_count or 0)
         if count > 0:
             changes.append(
                 {"sku_id": item.sku_id, "warehouse_id": warehouse_id, "quantity": -count}
             )
     return changes
-
-
-# ---------------------------------------------------------------- 单号生成
-
-
-def generate_order_no(db: Session) -> str:
-    """生成单号：SO + yyyyMMdd + 4 位当日流水，如 SO202609160001。"""
-    prefix = "SO" + datetime.now().strftime("%Y%m%d")
-    max_no = db.scalar(select(func.max(SalesOrder.no)).where(SalesOrder.no.like(f"{prefix}%")))
-    seq = 1
-    if max_no:
-        try:
-            seq = int(str(max_no)[-4:]) + 1
-        except ValueError:
-            seq = 1
-    return f"{prefix}{seq:04d}"
 
 
 # ---------------------------------------------------------------- 接口
@@ -190,68 +185,57 @@ def create_order(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("operator", "admin")),
 ):
-    """运营下单。created_by 取当前用户，status 固定 10，总额由后端汇总。"""
-    # 校验客户
-    customer = db.get(Partner, payload.customer_id)
-    if customer is None:
-        raise BizException("客户不存在")
-    if customer.type not in (1, 3):
-        raise BizException(f"往来单位「{customer.name}」不是客户，不能用于下单")
+    """运营录入外部平台订单（契约 19.1）。
 
-    # 校验 SKU
-    sku_ids = [item.sku_id for item in payload.items]
-    sku_map = {
-        s.id: s for s in db.scalars(select(ProductSku).where(ProductSku.id.in_(sku_ids)))
-    }
-    for sku_id in sku_ids:
-        sku = sku_map.get(sku_id)
-        if sku is None:
-            raise BizException(f"SKU(id={sku_id})不存在")
-        if sku.status != 1:
-            raise BizException(f"SKU「{sku.sku_code}」已停用，无法下单")
+    `no` 为运营录入的订单号，全局唯一；明细只记商品名 / 货号 / 新品标记，
+    `sku_id` 留空由仓储端后续「关联货号」回填；status 固定 10，总额由后端汇总。
+    """
+    # 先做一次友好校验；并发下两个请求可能同时通过这里，靠 no 的唯一索引兜底
+    if db.scalar(select(SalesOrder.id).where(SalesOrder.no == payload.no)) is not None:
+        raise BizException(f"订单号已存在：{payload.no}")
 
     # 后端汇总总额，不信任前端传值
     total_count = sum((item.count for item in payload.items), Decimal("0"))
     total_price = sum(
-        ((item.count * item.price).quantize(CENT, rounding=ROUND_HALF_UP) for item in payload.items),
+        (
+            (item.count * item.expect_price).quantize(CENT, rounding=ROUND_HALF_UP)
+            for item in payload.items
+        ),
         Decimal("0"),
     )
 
-    # sales_order.no 有唯一索引：并发下可能撞号，捕获后重试
-    order: SalesOrder | None = None
-    for _ in range(5):
-        try:
-            order = SalesOrder(
-                no=generate_order_no(db),
-                customer_id=payload.customer_id,
-                status=ORDER_STATUS_PENDING,
-                remark=payload.remark,
-                total_count=total_count,
-                total_price=total_price,
-                created_by=current_user.id,
-            )
-            db.add(order)
-            db.flush()
-            for item in payload.items:
-                db.add(
-                    SalesOrderItem(
-                        order_id=order.id,
-                        sku_id=item.sku_id,
-                        count=item.count,
-                        out_count=Decimal("0"),
-                        price=item.price,
-                        total_price=(item.count * item.price).quantize(
-                            CENT, rounding=ROUND_HALF_UP
-                        ),
-                    )
+    order = SalesOrder(
+        no=payload.no,
+        status=ORDER_STATUS_PENDING,
+        remark=payload.remark,
+        total_count=total_count,
+        total_price=total_price,
+        created_by=current_user.id,
+    )
+    db.add(order)
+    try:
+        db.flush()
+        for item in payload.items:
+            db.add(
+                SalesOrderItem(
+                    order_id=order.id,
+                    product_name=item.product_name,
+                    sku_code=item.sku_code,
+                    is_new=item.is_new,
+                    sku_id=None,  # 尚未关联货号，由仓储端 bind-sku 回填
+                    count=item.count,
+                    out_count=Decimal("0"),
+                    expect_price=item.expect_price,
+                    total_price=(item.count * item.expect_price).quantize(
+                        CENT, rounding=ROUND_HALF_UP
+                    ),
                 )
-            db.commit()
-            break
-        except IntegrityError:
-            db.rollback()
-            order = None
-    if order is None:
-        raise BizException("订单号生成冲突，请稍后重试")
+            )
+        db.commit()
+    except IntegrityError:
+        # 唯一索引兜底：并发下另一个请求刚插入了同一个订单号
+        db.rollback()
+        raise BizException(f"订单号已存在：{payload.no}") from None
 
     db.refresh(order)
     return ok(build_order_detail(db, order), msg="下单成功")
@@ -262,11 +246,11 @@ def list_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
     status: int | None = Query(None, description="订单状态"),
-    keyword: str | None = Query(None, description="单号 / 客户名 / 物流单号"),
+    keyword: str | None = Query(None, description="单号 / 物流单号"),
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
 ):
-    """订单列表。
+    """订单列表（契约 19.4）。
 
     可见性规则：operator 只返回 created_by = 当前用户 的订单；admin / warehouse 返回全部。
     approver 无权限（契约第十一节「订单列表」为 ❌）。
@@ -280,16 +264,13 @@ def list_orders(
         conditions.append(SalesOrder.status == status)
     kw = (keyword or "").strip()
 
-    stmt = select(SalesOrder).outerjoin(Partner, Partner.id == SalesOrder.customer_id)
-    count_stmt = select(func.count()).select_from(SalesOrder).outerjoin(
-        Partner, Partner.id == SalesOrder.customer_id
-    )
+    stmt = select(SalesOrder)
+    count_stmt = select(func.count()).select_from(SalesOrder)
     if kw:
         pattern = f"%{kw}%"
         condition = or_(
             SalesOrder.no.like(pattern),
             SalesOrder.express_no.like(pattern),
-            Partner.name.like(pattern),
         )
         stmt = stmt.where(condition)
         count_stmt = count_stmt.where(condition)
@@ -323,45 +304,75 @@ def cancel_order(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
 ):
-    """取消订单。仅 status 在 10 / 20 / 30 时可取消；operator 只能取消自己的订单。
+    """取消订单。仅 status 在 10 / 20 / 25 / 30 时可取消；operator 只能取消自己的订单。
 
-    四阶段（契约 12.2）：订单处于「已接单(20) / 备货中(30)」时，接单那一刻已经
-    预留过库存，取消要把预留释放掉；「待接单(10)」还没预留，不需要动库存。
-    释放与状态变更在同一事务里提交。
+    运营确认数量只记录最终数量，不预留库存；库存采购与实际出库由仓储处理。
+    因此取消订单不需要调整任何库存，只修改订单状态和取消原因。
 
-    并发保护：先对订单行加 `FOR UPDATE` 锁，再读状态校验，避免并发下重复取消 / 重复释放。
+    并发保护：先对订单行加 `FOR UPDATE` 锁，再读状态校验，避免并发下重复取消。
     """
-    # 加行锁读取：保证「读状态 → 校验 → 释放预留 → 改状态」之间没有其他事务插入
+    # 加行锁读取：保证「读状态 → 校验 → 改状态」之间没有其他事务插入
     order = get_order_or_404(db, order_id, for_update=True)
     ensure_visible(order, current_user)
 
     target = ensure_transition(order.status, "取消")
-
-    # 这里必须读 order.status（此时还没被改成 target），判断的是取消前的状态
-    if (
-        order.status in (ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING)
-        and order.warehouse_id is not None
-    ):
-        warnings = release_inventory(
-            db,
-            build_order_outbound_changes(order, order.warehouse_id),
-            order.no,
-            current_user.id,
-        )
-        if warnings:
-            # 预留账实不符：释放量超过当前预留量，已钳制为 0。这里再记一条业务级日志，
-            # 便于把「哪张订单触发了钳制」与库存服务的明细告警串起来（P2-2）。
-            logger.warning(
-                "取消订单时释放预留出现账实不符，已钳制为 0：order_no=%s, 明细=%s",
-                order.no,
-                warnings,
-            )
 
     order.status = target
     order.cancel_reason = payload.cancel_reason
     db.commit()
     db.refresh(order)
     return ok(build_order_detail(db, order), msg="订单已取消")
+
+
+@router.post("/{order_id}/confirm-quantity", summary="确认数量（开始备货）")
+def confirm_quantity(
+    order_id: int,
+    payload: ConfirmQuantityIn,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_roles("operator", "admin")),
+):
+    """运营确认数量：25「数量待确认」→ 30「备货中」（契约 19.6）。
+
+    - 仅 `operator`（且只能操作自己创建的订单）/ `admin` 可调用；
+    - 运营提交每个订单明细的最终数量，必须完整覆盖订单明细且不允许重复；
+    - 处理顺序（同一事务）：校验状态 → 校验数量明细 → 更新数量汇总
+      → 改状态 + 写 prepare_at；不校验或预留库存。
+
+    并发保护：先对订单行加 `FOR UPDATE` 锁再读状态，避免同一订单被重复确认、
+    重复写入数量。
+    """
+    # 加行锁读取：保证「读状态 → 校验数量 → 改状态」之间没有其他事务插入
+    order = get_order_or_404(db, order_id, for_update=True)
+    ensure_visible(order, current_user)
+
+    # 非 25 时由 ensure_transition 抛 code=1001，msg 带当前状态中文名
+    target = ensure_transition(order.status, "确认数量")
+
+    # 请求必须恰好覆盖这张订单的全部明细，避免遗漏行沿用旧数量或跨订单篡改。
+    order_items = {item.id: item for item in order.items}
+    submitted_counts = {item.item_id: Decimal(item.count) for item in payload.items}
+    if set(submitted_counts) != set(order_items):
+        raise BizException("确认数量必须包含订单全部明细，且不能包含其他订单明细")
+
+    total_count = Decimal("0.00")
+    total_price = Decimal("0.00")
+    for item in order.items:
+        count = submitted_counts[item.id]
+        item.count = count
+        item.total_price = (count * Decimal(item.expect_price or 0)).quantize(
+            CENT, rounding=ROUND_HALF_UP
+        )
+        total_count += count
+        total_price += item.total_price
+
+    order.total_count = total_count.quantize(CENT, rounding=ROUND_HALF_UP)
+    order.total_price = total_price.quantize(CENT, rounding=ROUND_HALF_UP)
+    order.status = target
+    order.prepare_at = datetime.now()
+
+    db.commit()
+    db.refresh(order)
+    return ok(build_order_detail(db, order), msg="已确认数量，开始备货")
 
 
 @router.post("/{order_id}/confirm", summary="确认完成")

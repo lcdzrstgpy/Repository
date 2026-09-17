@@ -16,7 +16,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
-            placeholder="订单单号 / 客户名称"
+            placeholder="请输入订单号"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -51,8 +51,10 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="no" label="订单单号" width="170" />
-        <el-table-column prop="customer_name" label="客户名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="no" label="订单号" width="170" />
+        <el-table-column prop="item_count" label="商品行数" width="100" align="center">
+          <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="orderStatusType(row.status)" size="small">
@@ -63,16 +65,24 @@
         <el-table-column prop="total_count" label="总数量" width="100" align="right">
           <template #default="{ row }">{{ formatCount(row.total_count) }}</template>
         </el-table-column>
-        <el-table-column prop="total_price" label="总金额" width="120" align="right">
+        <el-table-column prop="total_price" label="预计总成本" width="130" align="right">
           <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
         </el-table-column>
         <el-table-column prop="express_no" label="物流单号" width="150">
           <template #default="{ row }">{{ row.express_no || '-' }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="下单时间" width="170" />
-        <el-table-column label="操作" width="230" fixed="right" align="center">
+        <el-table-column label="操作" width="310" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+            <el-button
+              v-if="row.status === 25"
+              link
+              type="warning"
+              @click="openDetail(row)"
+            >
+              填写数量
+            </el-button>
             <el-button
               link
               type="danger"
@@ -108,7 +118,7 @@
     </el-card>
 
     <!-- 订单详情抽屉 -->
-    <OrderDetailDrawer v-model="detailVisible" :order-id="currentOrderId" />
+    <OrderDetailDrawer v-model="detailVisible" :order-id="currentOrderId" @updated="load" />
   </div>
 </template>
 

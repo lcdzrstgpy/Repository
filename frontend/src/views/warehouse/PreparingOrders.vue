@@ -15,12 +15,14 @@
       </div>
 
       <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="no" label="订单单号" width="170" />
-        <el-table-column prop="customer_name" label="客户名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="no" label="订单号" width="170" />
+        <el-table-column prop="item_count" label="商品行数" width="100" align="center">
+          <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
+        </el-table-column>
         <el-table-column prop="total_count" label="总数量" width="100" align="right">
           <template #default="{ row }">{{ formatCount(row.total_count) }}</template>
         </el-table-column>
-        <el-table-column prop="total_price" label="总金额" width="120" align="right">
+        <el-table-column prop="total_price" label="预计总成本" width="130" align="right">
           <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
         </el-table-column>
         <el-table-column prop="claimed_by_name" label="接单人" width="110">
@@ -51,8 +53,8 @@
     <!-- 发货弹窗：填写物流单号 -->
     <el-dialog v-model="shipVisible" title="订单发货" width="460px" @closed="handleDialogClosed">
       <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
-        <el-descriptions-item label="订单单号">{{ currentRow?.no }}</el-descriptions-item>
-        <el-descriptions-item label="客户名称">{{ currentRow?.customer_name }}</el-descriptions-item>
+        <el-descriptions-item label="订单号">{{ currentRow?.no }}</el-descriptions-item>
+        <el-descriptions-item label="商品行数">{{ formatCount(currentRow?.item_count) }}</el-descriptions-item>
         <el-descriptions-item label="总数量">{{ formatCount(currentRow?.total_count) }}</el-descriptions-item>
       </el-descriptions>
 

@@ -56,6 +56,18 @@ export const routes = [
           group: '运营管理'
         }
       },
+      {
+        path: 'operator/items',
+        name: 'OperatorItemQuery',
+        component: () => import('@/views/operator/ItemQuery.vue'),
+        meta: {
+          title: '货号查询',
+          icon: 'Search',
+          roles: ['operator', 'admin'],
+          menu: true,
+          group: '运营管理'
+        }
+      },
 
       // ---------- 仓储端 ----------
       {
@@ -191,7 +203,7 @@ export const routes = [
         meta: {
           title: '库存查询',
           icon: 'Coin',
-          roles: ['warehouse', 'admin', 'operator'],
+          roles: ['warehouse', 'admin'],
           menu: true,
           group: '库存管理'
         }
@@ -203,7 +215,7 @@ export const routes = [
         meta: {
           title: '库存流水',
           icon: 'Clock',
-          roles: ['warehouse', 'admin', 'operator'],
+          roles: ['warehouse', 'admin'],
           menu: true,
           group: '库存管理'
         }
@@ -215,8 +227,7 @@ export const routes = [
         meta: {
           title: '库存预警',
           icon: 'Warning',
-          // 预警查询：operator / warehouse / admin（契约 19）
-          roles: ['warehouse', 'operator', 'admin'],
+          roles: ['warehouse', 'admin'],
           menu: true,
           group: '库存管理'
         }

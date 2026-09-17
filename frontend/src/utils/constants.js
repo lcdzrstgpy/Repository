@@ -24,7 +24,8 @@ export const ROLE_OPTIONS = Object.entries(ROLE_MAP).map(([value, label]) => ({
 export const ORDER_STATUS = {
   10: { label: '待接单', type: 'info' },
   20: { label: '已接单', type: 'primary' },
-  30: { label: '备货中', type: 'warning' },
+  25: { label: '数量待确认', type: 'warning' },
+  30: { label: '备货中', type: 'primary' },
   40: { label: '已发货', type: 'success' },
   50: { label: '已完成', type: 'success' },
   90: { label: '已取消', type: 'danger' }
@@ -35,8 +36,8 @@ export const ORDER_STATUS_OPTIONS = Object.entries(ORDER_STATUS).map(([value, it
   label: item.label
 }))
 
-/** 可取消的状态：10 / 20 / 30（契约 6） */
-export const CANCELABLE_STATUS = [10, 20, 30]
+/** 可取消的状态：10 / 20 / 25 / 30（契约 18） */
+export const CANCELABLE_STATUS = [10, 20, 25, 30]
 
 /** 审批状态（契约 3.3） */
 export const AUDIT_STATUS_MAP = {

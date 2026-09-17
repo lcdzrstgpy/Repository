@@ -14,6 +14,10 @@
     - SKU 采用 upsert：已存在的 SKU 会覆盖 min_stock / spec / price / status，
       重复执行可把安全库存修回预期值（SKU001=50、SKU002=50、SKU003=20）。
     - 示例订单以单号 SAMPLE_ORDER_NO 作为幂等键，与 sql/init_data.sql 保持一致。
+
+六阶段（契约 17.1 / 17.2 / 21.2）：订单改为「运营录入外部平台订单」模式，
+示例订单不再关联客户，明细为「老品填货号 + 新品勾标记」两行，`sku_id` 均留空，
+供仓储端「关联货号」流程测试（行 1 的货号 SKU001 在 product_sku 里真实存在）。
 """
 
 import sys
@@ -40,9 +44,10 @@ from app.models import (
 # 统一初始密码
 DEFAULT_PASSWORD = "admin123"
 
-# 示例订单的单号，同时作为两条初始化路径（本脚本 / sql/init_data.sql）统一的幂等键。
+# 示例订单的单号（运营录入的外部平台订单号），
+# 同时作为两条初始化路径（本脚本 / sql/init_data.sql）统一的幂等键。
 # 单号本身唯一，比用 remark 判断更可靠。
-SAMPLE_ORDER_NO = "SO202609160001"
+SAMPLE_ORDER_NO = "TB20260917001"
 
 # 示例订单的备注文案，需与 sql/init_data.sql 中的 remark 保持一致
 SAMPLE_ORDER_REMARK = "示例订单，供仓储端接单测试"
@@ -226,13 +231,15 @@ def init_inventory(db: Session, skus: dict[str, ProductSku], warehouses: dict[st
     return created
 
 
-def init_sample_order(
-    db: Session, users: dict[str, SysUser], partners: dict[str, Partner], skus: dict[str, ProductSku]
-) -> bool:
-    """1 条 status = 10 的示例待接单订单，含 2 条明细。
+def init_sample_order(db: Session, users: dict[str, SysUser]) -> bool:
+    """1 条 status = 10 的示例待接单订单，含 2 条明细（老品行 + 新品行）。
 
-    幂等键为单号 SAMPLE_ORDER_NO（与 sql/init_data.sql 中的 SO202609160001 一致），
+    幂等键为单号 SAMPLE_ORDER_NO（与 sql/init_data.sql 中的 TB20260917001 一致），
     避免两条初始化路径互相不认、造出重复示例订单。
+
+    明细按契约 17.2 的新结构写入：`sku_id` 一律留空，等仓储端「关联货号」回填。
+    行 1 填了货号 SKU001（系统里真实存在，可直接匹配成功），
+    行 2 未填货号且 `is_new = 1`（新品，由仓储端新建货号），两行覆盖两种分支。
     """
     exists = db.scalar(select(SalesOrder).where(SalesOrder.no == SAMPLE_ORDER_NO))
     if exists is not None:
@@ -240,17 +247,16 @@ def init_sample_order(
         return False
 
     operator = users["operator1"]
-    customer = partners["某某贸易"]
     lines = [
-        (skus["SKU001"], Decimal("10"), Decimal("25.00")),
-        (skus["SKU002"], Decimal("5"), Decimal("18.50")),
+        # (商品名, 货号, 是否新品, 数量, 预计成本单价)
+        ("商品A", "SKU001", 0, Decimal("10"), Decimal("25.00")),
+        ("新品手机壳", None, 1, Decimal("5"), Decimal("18.50")),
     ]
-    total_count = sum((count for _, count, _ in lines), Decimal("0"))
-    total_price = sum((count * price for _, count, price in lines), Decimal("0"))
+    total_count = sum((count for _, _, _, count, _ in lines), Decimal("0"))
+    total_price = sum((count * price for _, _, _, count, price in lines), Decimal("0"))
 
     order = SalesOrder(
         no=SAMPLE_ORDER_NO,
-        customer_id=customer.id,
         status=10,
         audit_status=0,
         remark=SAMPLE_ORDER_REMARK,
@@ -260,18 +266,24 @@ def init_sample_order(
     )
     db.add(order)
     db.flush()
-    for sku, count, price in lines:
+    for product_name, sku_code, is_new, count, price in lines:
         db.add(
             SalesOrderItem(
                 order_id=order.id,
-                sku_id=sku.id,
+                product_name=product_name,
+                sku_code=sku_code,
+                is_new=is_new,
+                sku_id=None,  # 待仓储端关联货号
                 count=count,
                 out_count=Decimal("0"),
-                price=price,
+                expect_price=price,
                 total_price=count * price,
             )
         )
-    print(f"[示例订单] 新增待接单订单 {order.no}（{len(lines)} 条明细，金额 {total_price}）")
+    print(
+        f"[示例订单] 新增待接单订单 {order.no}"
+        f"（{len(lines)} 条明细：1 行老品填货号 + 1 行新品，金额 {total_price}）"
+    )
     return True
 
 
@@ -287,9 +299,9 @@ def main() -> int:
             users = init_users(db)
             warehouses = init_warehouses(db)
             skus = init_products(db)
-            partners = init_partners(db)
+            init_partners(db)
             init_inventory(db, skus, warehouses)
-            init_sample_order(db, users, partners, skus)
+            init_sample_order(db, users)
             db.commit()
     except Exception as exc:  # noqa: BLE001
         print(f"[失败] 初始化出错：{type(exc).__name__}: {exc}", file=sys.stderr)

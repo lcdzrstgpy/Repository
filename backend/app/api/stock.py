@@ -16,7 +16,7 @@ from app.api.order import build_order_outbound_changes
 from app.core.database import get_db
 from app.core.response import BizException, NotFoundException, normalize_page, ok, paginate
 from app.core.security import require_roles
-from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.basic import Product, ProductSku, Warehouse
 from app.models.order import (
     ORDER_STATUS_PREPARING,
     ORDER_STATUS_SHIPPED,
@@ -66,16 +66,14 @@ def generate_sales_out_no(db: Session, offset: int = 0) -> str:
     return f"{prefix}{seq + offset:04d}"
 
 
-def _load_names(db: Session, outs: list[SalesOut]) -> tuple[dict, dict, dict]:
-    """批量取仓库名、操作人姓名、客户名，避免逐行查询。
+def _load_names(db: Session, outs: list[SalesOut]) -> tuple[dict, dict]:
+    """批量取仓库名、操作人姓名，避免逐行查询。
 
-    出库单表只冗余了 `order_no`，没有客户字段，客户名要经
-    `order_id → sales_order.customer_id → partner.name` 取到；
-    这里两级都走批量查询，返回的客户名按 `order_id` 索引（契约第十三节打印需含往来单位）。
+    六阶段（契约 17.1 / 19.4）订单已删除客户字段，出库单也不再展示客户名，
+    因此这里只返回仓库名与操作人姓名，分别按 warehouse_id / user_id 索引。
     """
     warehouse_ids = {out.warehouse_id for out in outs if out.warehouse_id}
     user_ids = {out.created_by for out in outs if out.created_by}
-    order_ids = {out.order_id for out in outs if out.order_id}
     warehouses = (
         {w.id: w.name for w in db.scalars(select(Warehouse).where(Warehouse.id.in_(warehouse_ids)))}
         if warehouse_ids
@@ -89,40 +87,19 @@ def _load_names(db: Session, outs: list[SalesOut]) -> tuple[dict, dict, dict]:
         if user_ids
         else {}
     )
-    # 订单 id → 客户 id，再按客户 id 批量取名称，最后按 order_id 索引
-    order_customer_ids = (
-        dict(
-            db.execute(
-                select(SalesOrder.id, SalesOrder.customer_id).where(SalesOrder.id.in_(order_ids))
-            ).all()
-        )
-        if order_ids
-        else {}
-    )
-    customer_ids = {cid for cid in order_customer_ids.values() if cid}
-    customers = (
-        {p.id: p.name for p in db.scalars(select(Partner).where(Partner.id.in_(customer_ids)))}
-        if customer_ids
-        else {}
-    )
-    customers_by_order = {
-        order_id: customers.get(customer_id)
-        for order_id, customer_id in order_customer_ids.items()
-    }
-    return warehouses, users, customers_by_order
+    return warehouses, users
 
 
 def build_sales_out_briefs(db: Session, outs: list[SalesOut]) -> list[dict]:
     """出库单列表元素批量序列化。"""
     if not outs:
         return []
-    warehouses, users, customers = _load_names(db, outs)
+    warehouses, users = _load_names(db, outs)
     return [
         sales_out_brief(
             out,
             warehouse_name=warehouses.get(out.warehouse_id),
             created_by_name=users.get(out.created_by),
-            customer_name=customers.get(out.order_id),
         )
         for out in outs
     ]
@@ -130,7 +107,7 @@ def build_sales_out_briefs(db: Session, outs: list[SalesOut]) -> list[dict]:
 
 def build_sales_out_detail(db: Session, out: SalesOut) -> dict:
     """出库单详情序列化，含明细（带 sku_code / product_name / spec）。"""
-    warehouses, users, customers = _load_names(db, [out])
+    warehouses, users = _load_names(db, [out])
     items = list(
         db.scalars(
             select(SalesOutItem)
@@ -162,7 +139,6 @@ def build_sales_out_detail(db: Session, out: SalesOut) -> dict:
         out,
         warehouse_name=warehouses.get(out.warehouse_id),
         created_by_name=users.get(out.created_by),
-        customer_name=customers.get(out.order_id),
         items=item_dicts,
     )
 
@@ -193,9 +169,10 @@ def create_sales_out_from_order(
         raise BizException("订单明细已全部出库，无需重复发货")
 
     total_count = sum((count for _, count in lines), Decimal("0.00"))
+    # 六阶段（契约 17.2）：订单行单价由 `price` 重命名为 `expect_price`（预计成本单价）
     total_price = sum(
         (
-            (count * Decimal(item.price or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
+            (count * Decimal(item.expect_price or 0)).quantize(CENT, rounding=ROUND_HALF_UP)
             for item, count in lines
         ),
         Decimal("0.00"),
@@ -245,8 +222,8 @@ def create_sales_out_from_order(
                 order_item_id=item.id,
                 sku_id=item.sku_id,
                 count=count,
-                price=item.price,
-                total_price=(count * Decimal(item.price or 0)).quantize(
+                price=item.expect_price,
+                total_price=(count * Decimal(item.expect_price or 0)).quantize(
                     CENT, rounding=ROUND_HALF_UP
                 ),
             )
