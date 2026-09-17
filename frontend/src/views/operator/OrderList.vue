@@ -52,7 +52,7 @@
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="no" label="订单号" width="170" />
-        <el-table-column prop="item_count" label="商品行数" width="100" align="center">
+        <el-table-column prop="item_count" label="订单 SKU 数" width="110" align="center">
           <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100" align="center">

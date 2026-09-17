@@ -16,7 +16,7 @@
               {{ orderStatusText }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="商品行数">{{ formatCount(detail.item_count) }}</el-descriptions-item>
+          <el-descriptions-item label="订单 SKU 数">{{ formatCount(detail.item_count) }}</el-descriptions-item>
           <el-descriptions-item label="总数量">{{ formatCount(displayTotalCount) }}</el-descriptions-item>
           <el-descriptions-item label="预计总成本">
             ￥{{ formatAmount(displayTotalPrice) }}
@@ -57,7 +57,7 @@
         <div class="section-title">订单明细</div>
         <el-table :data="detail.items || []" border size="small" show-summary :summary-method="summaryMethod">
           <el-table-column type="index" label="序号" width="55" align="center" />
-          <el-table-column prop="product_name" label="商品名" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="product_name" label="SKU 名" min-width="120" show-overflow-tooltip />
           <el-table-column label="货号" min-width="150">
             <template #default="{ row }">
               <!-- 已关联：显示仓库回填的实际货号 -->

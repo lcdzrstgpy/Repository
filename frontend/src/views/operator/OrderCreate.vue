@@ -54,9 +54,9 @@
 
       <el-table :data="form.items" border>
         <el-table-column type="index" label="序号" width="60" align="center" />
-        <el-table-column label="商品名" min-width="180">
+        <el-table-column label="SKU 名" min-width="180">
           <template #default="{ row }">
-            <el-input v-model="row.product_name" placeholder="请输入商品名" maxlength="200" />
+            <el-input v-model="row.product_name" placeholder="请输入 SKU 名" maxlength="200" />
           </template>
         </el-table-column>
         <el-table-column label="新品" width="80" align="center">
@@ -201,7 +201,7 @@ function validateItems() {
     const row = form.items[i]
     const line = `第 ${i + 1} 行`
     if (!row.product_name || !row.product_name.trim()) {
-      ElMessage.warning(`${line}商品名不能为空`)
+      ElMessage.warning(`${line}SKU 名不能为空`)
       return false
     }
     if (row.is_new === 1) {
