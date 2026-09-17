@@ -150,6 +150,11 @@ r = client.post("/api/auth/login", json={"username": "warehouse1", "password": "
 wh_h = {"Authorization": f"Bearer {(body(r).get('data') or {}).get('access_token', '')}"}
 check("warehouse1 登录", body(r).get("code") == 0)
 
+r = client.get("/api/stock-transfers", headers=wh_h)
+check("移库功能已移除", body(r).get("code") == 404, str(body(r))[:120])
+r = client.get("/api/stock-takes", headers=wh_h)
+check("盘点功能已移除", body(r).get("code") == 404, str(body(r))[:120])
+
 # 运营货号库存查询：仅展示货号资料和各仓库库存，不提供库存写入能力。
 r = client.get("/api/item-query", params={"keyword": "SKU001"}, headers=op_h)
 item_rows = body(r).get("data", [])

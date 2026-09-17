@@ -1,7 +1,4 @@
-"""库存查询与调整接口（契约 5.5 / 9.4）。
-
-查询只读；库存调整（盘点）走统一的 `change_inventory` 服务。
-"""
+"""库存查询与调整接口（契约 5.5 / 9.4）。"""
 
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -233,7 +230,7 @@ def list_inventory_history(
     return ok(paginate(items, total, page, page_size))
 
 
-@router.post("/adjust", summary="手动调整库存（盘点）")
+@router.post("/adjust", summary="手动调整库存")
 def adjust_inventory(
     payload: InventoryAdjustIn,
     db: Session = Depends(get_db),
@@ -271,7 +268,7 @@ def adjust_inventory(
             "ADJ" + datetime.now().strftime("%Y%m%d%H%M%S"),
             ORDER_TYPE_ADJUST,
             current_user.id,
-            # 盘点备注写入库存流水，保证调整有据可查（契约 9.4）
+            # 调整备注写入库存流水，保证库存修正可追溯（契约 9.4）
             remark=payload.remark,
         )
         db.commit()

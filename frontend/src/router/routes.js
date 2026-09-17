@@ -144,57 +144,6 @@ export const routes = [
           group: '仓储管理'
         }
       },
-      {
-        path: 'warehouse/transfers',
-        name: 'WarehouseTransferList',
-        component: () => import('@/views/warehouse/TransferList.vue'),
-        meta: {
-          title: '移库单',
-          icon: 'Sort',
-          roles: ['warehouse', 'admin'],
-          menu: true,
-          group: '仓储管理'
-        }
-      },
-      {
-        path: 'warehouse/transfers/create',
-        name: 'WarehouseTransferCreate',
-        component: () => import('@/views/warehouse/TransferCreate.vue'),
-        meta: {
-          title: '新建移库单',
-          icon: 'DocumentAdd',
-          roles: ['warehouse', 'admin'],
-          // 从移库单列表跳转，不占用侧边栏
-          menu: false,
-          group: '仓储管理'
-        }
-      },
-      {
-        path: 'warehouse/stock-takes',
-        name: 'WarehouseStockTakeList',
-        component: () => import('@/views/warehouse/StockTakeList.vue'),
-        meta: {
-          title: '盘点单',
-          icon: 'Histogram',
-          roles: ['warehouse', 'admin'],
-          menu: true,
-          group: '仓储管理'
-        }
-      },
-      {
-        path: 'warehouse/stock-takes/create',
-        name: 'WarehouseStockTakeCreate',
-        component: () => import('@/views/warehouse/StockTakeCreate.vue'),
-        meta: {
-          title: '新建盘点单',
-          icon: 'DocumentAdd',
-          roles: ['warehouse', 'admin'],
-          // 从盘点单列表跳转，不占用侧边栏
-          menu: false,
-          group: '仓储管理'
-        }
-      },
-
       // ---------- 库存管理 ----------
       {
         path: 'warehouse/inventory',

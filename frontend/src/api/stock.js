@@ -21,7 +21,7 @@ export function cancelOut(id) {
 }
 
 /**
- * 手动调整库存（盘点用，仅 admin）
+ * 手动调整库存（仅 admin）
  * @param {Object} data { sku_id, warehouse_id, quantity, remark }
  *   quantity 为目标值，后端算差异后走 change_inventory
  */

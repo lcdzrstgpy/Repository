@@ -2,14 +2,6 @@
 
 from app.models.basic import Partner, Product, ProductSku, Warehouse
 from app.models.inventory import Inventory, InventoryHistory
-from app.models.ops import (
-    STOCK_TAKE_STATUS_TEXT,
-    TRANSFER_STATUS_TEXT,
-    StockTake,
-    StockTakeItem,
-    StockTransfer,
-    StockTransferItem,
-)
 from app.models.order import (
     ORDER_STATUS_CANCELLED,
     ORDER_STATUS_TEXT,
@@ -53,10 +45,4 @@ __all__ = [
     "PurchaseInItem",
     "PURCHASE_STATUS_TEXT",
     "PURCHASE_IN_STATUS_TEXT",
-    "StockTransfer",
-    "StockTransferItem",
-    "StockTake",
-    "StockTakeItem",
-    "TRANSFER_STATUS_TEXT",
-    "STOCK_TAKE_STATUS_TEXT",
 ]

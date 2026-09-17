@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import auth, basic, data_io, inventory, ops, order, purchase, stock, warehouse
+from app.api import auth, basic, data_io, inventory, order, purchase, stock, warehouse
 from app.core.config import settings
 from app.core.response import BizException, fail
 
@@ -82,5 +82,4 @@ app.include_router(warehouse.router)
 app.include_router(inventory.router)
 app.include_router(stock.router)
 purchase.register_purchase_routers(app)
-ops.register_ops_routers(app)
 app.include_router(data_io.router)

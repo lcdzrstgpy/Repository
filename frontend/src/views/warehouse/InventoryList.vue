@@ -181,7 +181,7 @@
             v-model="adjustForm.remark"
             type="textarea"
             :rows="3"
-            placeholder="请输入调整原因，如：盘点差异"
+            placeholder="请输入调整原因"
             maxlength="500"
             show-word-limit
           />

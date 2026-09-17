@@ -98,38 +98,11 @@ export const PURCHASE_IN_STATUS = {
   20: { label: '已完成', type: 'success' }
 }
 
-/** 移库单状态（契约 16.1） */
-export const TRANSFER_STATUS = {
-  10: { label: '草稿', type: 'info' },
-  20: { label: '已完成', type: 'success' },
-  90: { label: '已作废', type: 'danger' }
-}
-
-export const TRANSFER_STATUS_OPTIONS = Object.entries(TRANSFER_STATUS).map(([value, item]) => ({
-  value: Number(value),
-  label: item.label
-}))
-
-/** 盘点单状态（契约 17.1） */
-export const STOCK_TAKE_STATUS = {
-  10: { label: '盘点中', type: 'warning' },
-  20: { label: '已完成', type: 'success' },
-  90: { label: '已作废', type: 'danger' }
-}
-
-export const STOCK_TAKE_STATUS_OPTIONS = Object.entries(STOCK_TAKE_STATUS).map(([value, item]) => ({
-  value: Number(value),
-  label: item.label
-}))
-
-/** 库存变动类型（契约 9.4 / 16.4 / 17.4） */
+/** 库存变动类型（契约 9.4） */
 export const ORDER_TYPE_MAP = {
   SALES_OUT: '销售出库',
   PURCHASE_IN: '采购入库',
-  ADJUST: '库存调整',
-  TRANSFER_OUT: '移库出',
-  TRANSFER_IN: '移库入',
-  STOCK_TAKE: '盘点调整'
+  ADJUST: '库存调整'
 }
 
 /** 订单状态时间线步骤（待接单 → 已接单 → 备货中 → 已发货 → 已完成） */
@@ -169,26 +142,6 @@ export function purchaseStatusLabel(status) {
 /** 根据采购单状态取 el-tag 类型 */
 export function purchaseStatusType(status) {
   return PURCHASE_STATUS[status]?.type || 'info'
-}
-
-/** 根据移库单状态取标签文案 */
-export function transferStatusLabel(status) {
-  return TRANSFER_STATUS[status]?.label || '未知状态'
-}
-
-/** 根据移库单状态取 el-tag 类型 */
-export function transferStatusType(status) {
-  return TRANSFER_STATUS[status]?.type || 'info'
-}
-
-/** 根据盘点单状态取标签文案 */
-export function stockTakeStatusLabel(status) {
-  return STOCK_TAKE_STATUS[status]?.label || '未知状态'
-}
-
-/** 根据盘点单状态取 el-tag 类型 */
-export function stockTakeStatusType(status) {
-  return STOCK_TAKE_STATUS[status]?.type || 'info'
 }
 
 /** 库存变动类型中文名，未知取值原样返回 */

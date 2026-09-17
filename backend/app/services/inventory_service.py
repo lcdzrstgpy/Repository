@@ -22,22 +22,16 @@ from app.models.inventory import Inventory, InventoryHistory
 # 数量统一保留 2 位小数，四舍五入
 CENT = Decimal("0.01")
 
-# 单据类型（契约 9.4 / 16.4 / 17.4）
+# 单据类型（契约 9.4）
 ORDER_TYPE_SALES_OUT = "SALES_OUT"
 ORDER_TYPE_PURCHASE_IN = "PURCHASE_IN"
 ORDER_TYPE_ADJUST = "ADJUST"
-ORDER_TYPE_TRANSFER_OUT = "TRANSFER_OUT"
-ORDER_TYPE_TRANSFER_IN = "TRANSFER_IN"
-ORDER_TYPE_STOCK_TAKE = "STOCK_TAKE"
 
 # 单据类型中文名
 ORDER_TYPE_TEXT: dict[str, str] = {
     ORDER_TYPE_SALES_OUT: "销售出库",
     ORDER_TYPE_PURCHASE_IN: "采购入库",
     ORDER_TYPE_ADJUST: "库存调整",
-    ORDER_TYPE_TRANSFER_OUT: "移库出",
-    ORDER_TYPE_TRANSFER_IN: "移库入",
-    ORDER_TYPE_STOCK_TAKE: "盘点调整",
 }
 
 
@@ -232,28 +226,6 @@ def shortage_message(shortages: list[dict]) -> str:
     )
 
 
-def lock_inventory_keys(db: Session, changes: list[dict] | None) -> None:
-    """按全局有序顺序**预先**锁定一批库存行（供跨多次 `change_inventory` 调用的场景）。
-
-    为什么需要它：移库要同时改「出库仓 -N」和「入库仓 +N」，最直观的写法是调两次
-    `change_inventory`。但每次调用内部只对自己的 key 排序，**两次调用之间的加锁顺序
-    不保证一致**。于是两张方向相反的移库单（A→B 与 B→A）携带重叠 SKU 并发执行时：
-
-        T1 持有 (sku,A) 等 (sku,B)
-        T2 持有 (sku,B) 等 (sku,A)   ← ABBA 死锁，InnoDB 报 1213
-
-    解决方式：在两次调用之前，把涉及的 `(sku_id, warehouse_id)` 全部合并后
-    按同一个全局顺序一次性锁住。后续 `change_inventory` 内部的加锁就变成
-    同一事务内的重复加锁（幂等），不再产生交叉等待。
-
-    本函数不提交事务，由调用方 commit；只加锁、不改数量、不写流水。
-    """
-    keys = sorted(merge_changes(changes).keys())
-    if not keys:
-        return
-    _load_locked_rows(db, keys)
-
-
 def change_inventory(
     db: Session,
     changes: list[dict],
@@ -268,7 +240,7 @@ def change_inventory(
     :param order_no: 关联单号，写入库存流水
     :param order_type: SALES_OUT / PURCHASE_IN / ADJUST
     :param operator_id: 操作人 user_id
-    :param remark: 备注（如盘点说明），写入库存流水，可空
+    :param remark: 备注，写入库存流水，可空
 
     不提交事务，由调用方 commit。
     """

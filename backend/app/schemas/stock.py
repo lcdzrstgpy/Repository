@@ -15,7 +15,7 @@ from app.schemas.serializers import fmt_dec, fmt_dt
 
 # ---------------------------------------------------------------- 请求
 class InventoryAdjustIn(BaseModel):
-    """手动调整库存（盘点）。quantity 是**目标值**，不是变动量。"""
+    """手动调整库存。quantity 是**目标值**，不是变动量。"""
 
     sku_id: int = Field(..., gt=0, description="SKU id")
     warehouse_id: int = Field(..., gt=0, description="仓库 id")
