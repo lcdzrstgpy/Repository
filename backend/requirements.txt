@@ -1,0 +1,17 @@
+# 仓储管理系统 · 后端依赖
+# 安装：pip install -r requirements.txt
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+SQLAlchemy==2.0.36
+Pydantic==2.10.4
+PyMySQL==1.1.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+# bcrypt 固定 4.0.1：4.1+ 移除了 passlib 1.7.4 依赖的 __about__ 属性
+bcrypt==4.0.1
+python-dotenv==1.0.1
+# Excel 导入导出（契约 14.3）
+openpyxl==3.1.5
+# 文件上传：FastAPI 的 UploadFile / Form 依赖此包，缺失会导致应用启动即报错
+python-multipart==0.0.20

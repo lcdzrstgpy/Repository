@@ -1,0 +1,68 @@
+/* 全局基础样式 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Arial, sans-serif;
+  font-size: 14px;
+  color: #303133;
+  background-color: #f0f2f5;
+}
+
+/* 页面统一容器 */
+.page-container {
+  padding: 16px;
+}
+
+/* 查询条件区 */
+.search-card {
+  margin-bottom: 16px;
+}
+
+/* 表格上方操作按钮区 */
+.table-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+/* 分页统一右对齐 */
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* 金额、数量统一右对齐 */
+.text-right {
+  text-align: right;
+}
+
+.text-muted {
+  color: #909399;
+}
+
+/* 单据打印页：打印时隐藏操作条等非打印内容，并重置页面背景与高度 */
+@media print {
+  html,
+  body,
+  #app {
+    height: auto;
+    background-color: #fff;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

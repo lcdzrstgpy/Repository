@@ -1,0 +1,48 @@
+# =============================================================================
+# 仓储管理系统 · Docker Compose（MySQL 8）
+# =============================================================================
+# 用法：
+#   启动数据库（后台运行）：  docker compose up -d
+#   查看启动日志：            docker compose logs -f warehouse-mysql
+#   进入 MySQL 命令行：       docker exec -it warehouse-mysql mysql -uroot -proot warehouse_erp
+#   停止（保留数据）：        docker compose down
+#   停止并删除数据卷：        docker compose down -v
+#
+# 说明：
+#   1. 首次启动容器时，MySQL 会自动按文件名字母序执行 /docker-entrypoint-initdb.d/
+#      下的脚本：01-schema.sql（建库建表）→ 02-init-data.sql（初始化数据）。
+#   2. 数据持久化在 named volume `mysql_data` 中；若需重新执行初始化脚本，
+#      先执行 `docker compose down -v` 清空数据卷，再 `docker compose up -d`。
+#   3. 本文件仅包含数据库服务；后端（8000）与前端（5173）请按 README 手动启动。
+# =============================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: warehouse-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: warehouse_erp
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --default-authentication-plugin=mysql_native_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 按字母序挂载，保证 schema 先于 init_data 执行
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./sql/init_data.sql:/docker-entrypoint-initdb.d/02-init-data.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  mysql_data:
+    name: warehouse_mysql_data
