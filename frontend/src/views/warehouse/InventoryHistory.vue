@@ -3,10 +3,10 @@
     <!-- 查询条件 -->
     <el-card shadow="never" class="search-card">
       <el-form :model="query" inline>
-        <el-form-item label="SKU">
+        <el-form-item label="货号">
           <el-select
             v-model="query.sku_id"
-            placeholder="全部 SKU"
+            placeholder="全部货号"
             clearable
             filterable
             style="width: 260px"
@@ -59,7 +59,7 @@
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="created_at" label="变动时间" width="170" />
-        <el-table-column prop="sku_code" label="SKU 编码" width="130" />
+        <el-table-column prop="sku_code" label="货号" width="130" />
         <el-table-column prop="product_name" label="商品名称" min-width="150" show-overflow-tooltip />
         <el-table-column prop="warehouse_name" label="仓库" width="120">
           <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>

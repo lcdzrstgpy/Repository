@@ -17,25 +17,10 @@
         router
         unique-opened
       >
-        <template v-for="group in menuGroups" :key="group.key">
-          <!-- 无分组：直接渲染一级菜单 -->
-          <el-menu-item v-if="!group.title" :index="group.items[0].path">
-            <el-icon><component :is="group.items[0].icon" /></el-icon>
-            <template #title>{{ group.items[0].title }}</template>
-          </el-menu-item>
-
-          <!-- 有分组：渲染子菜单 -->
-          <el-sub-menu v-else :index="group.title">
-            <template #title>
-              <el-icon><component :is="group.icon" /></el-icon>
-              <span>{{ group.title }}</span>
-            </template>
-            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
-              <el-icon><component :is="item.icon" /></el-icon>
-              <template #title>{{ item.title }}</template>
-            </el-menu-item>
-          </el-sub-menu>
-        </template>
+        <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+          <el-icon><component :is="item.icon" /></el-icon>
+          <template #title>{{ item.title }}</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -48,7 +33,6 @@
           </el-icon>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
-            <el-breadcrumb-item v-if="currentGroup">{{ currentGroup }}</el-breadcrumb-item>
             <el-breadcrumb-item v-if="route.meta?.title !== '首页'">
               {{ route.meta?.title }}
             </el-breadcrumb-item>
@@ -105,15 +89,8 @@ const roleTagType = computed(() => {
   return map[userStore.role] || 'info'
 })
 
-/** 当前页所属分组名，用于面包屑 */
-const currentGroup = computed(() => route.meta?.group || '')
-
-/**
- * 根据当前角色过滤路由，生成侧边栏菜单
- * 同一 group 的菜单合并成一个子菜单；无 group 的作为一级菜单。
- * 运营端功能较少，运营管理下的菜单直接平铺为一级菜单。
- */
-const menuGroups = computed(() => {
+/** 根据当前角色过滤路由，所有菜单均平铺为一级入口。 */
+const menuItems = computed(() => {
   const layoutRoute = routes.find((item) => item.path === '/')
   const children = layoutRoute?.children || []
   const role = userStore.role
@@ -127,30 +104,7 @@ const menuGroups = computed(() => {
       group: item.meta.group || ''
     }))
 
-  const groups = []
-  // 分组图标：未配置时取该分组第一个菜单项的图标
-  const groupIconMap = { 仓储管理: 'Box', 库存管理: 'Coin', 基础数据: 'Setting' }
-  visible.forEach((item) => {
-    if (role === 'operator' && item.group === '运营管理') {
-      groups.push({ key: item.path, title: '', icon: item.icon, items: [item] })
-      return
-    }
-
-    const groupTitle = item.group
-    const groupKey = groupTitle || item.path
-    let group = groups.find((g) => g.key === groupKey)
-    if (!group) {
-      group = {
-        key: groupKey,
-        title: groupTitle,
-        icon: groupIconMap[groupTitle] || item.icon,
-        items: []
-      }
-      groups.push(group)
-    }
-    group.items.push(item)
-  })
-  return groups
+  return visible
 })
 
 /** 顶栏下拉菜单 */

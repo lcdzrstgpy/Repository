@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -14,9 +14,10 @@ from app.models.basic import Product, ProductSku, Warehouse
 from app.models.inventory import Inventory, InventoryHistory
 from app.models.user import SysUser
 from app.schemas.serializers import fmt_dec, inventory_history_out, inventory_out
-from app.schemas.stock import InventoryAdjustIn
+from app.schemas.stock import InventoryAdjustIn, InventoryInboundIn
 from app.services.inventory_service import (
     ORDER_TYPE_ADJUST,
+    ORDER_TYPE_PURCHASE_IN,
     change_inventory,
     order_type_text,
 )
@@ -58,23 +59,23 @@ def list_inventory(
     """库存余额列表，available_quantity = quantity - reserved_quantity。"""
     page, page_size = normalize_page(page, page_size)
 
+    inventory_join = ProductSku.id == Inventory.sku_id
+    if warehouse_id is not None:
+        inventory_join = and_(inventory_join, Inventory.warehouse_id == warehouse_id)
     joins = (
-        select(Inventory)
-        .outerjoin(ProductSku, ProductSku.id == Inventory.sku_id)
+        select(ProductSku, Product, Inventory, Warehouse)
         .outerjoin(Product, Product.id == ProductSku.product_id)
+        .outerjoin(Inventory, inventory_join)
         .outerjoin(Warehouse, Warehouse.id == Inventory.warehouse_id)
     )
     count_stmt = (
         select(func.count())
-        .select_from(Inventory)
-        .outerjoin(ProductSku, ProductSku.id == Inventory.sku_id)
+        .select_from(ProductSku)
         .outerjoin(Product, Product.id == ProductSku.product_id)
-        .outerjoin(Warehouse, Warehouse.id == Inventory.warehouse_id)
+        .outerjoin(Inventory, inventory_join)
     )
 
     conditions = []
-    if warehouse_id is not None:
-        conditions.append(Inventory.warehouse_id == warehouse_id)
     kw = (keyword or "").strip()
     if kw:
         pattern = f"%{kw}%"
@@ -91,14 +92,27 @@ def list_inventory(
 
     total = db.scalar(count_stmt) or 0
     rows = db.execute(
-        joins.add_columns(ProductSku, Product, Warehouse)
-        .order_by(Inventory.id.asc())
+        joins.order_by(ProductSku.id.asc(), Inventory.id.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
     items = [
         inventory_out(inventory, sku, product, warehouse)
-        for inventory, sku, product, warehouse in rows
+        if inventory is not None
+        else {
+            "id": None,
+            "sku_id": sku.id,
+            "sku_code": sku.sku_code,
+            "sku_status": int(sku.status),
+            "product_name": product.name if product else None,
+            "spec": sku.spec,
+            "warehouse_id": warehouse_id,
+            "warehouse_name": None,
+            "quantity": 0.0,
+            "reserved_quantity": 0.0,
+            "available_quantity": 0.0,
+        }
+        for sku, product, inventory, warehouse in rows
     ]
     return ok(paginate(items, total, page, page_size))
 
@@ -118,39 +132,58 @@ def list_inventory_alerts(
     """
     page, page_size = normalize_page(page, page_size)
 
-    available = Inventory.quantity - Inventory.reserved_quantity
+    inventory_join = ProductSku.id == Inventory.sku_id
+    if warehouse_id is not None:
+        inventory_join = and_(inventory_join, Inventory.warehouse_id == warehouse_id)
+
+    available = func.coalesce(Inventory.quantity, 0) - func.coalesce(Inventory.reserved_quantity, 0)
     shortage = ProductSku.min_stock - available
     conditions = [ProductSku.min_stock > 0, available < ProductSku.min_stock]
-    if warehouse_id is not None:
-        conditions.append(Inventory.warehouse_id == warehouse_id)
 
     joins = (
-        select(Inventory)
-        .join(ProductSku, ProductSku.id == Inventory.sku_id)
+        select(ProductSku, Product, Inventory, Warehouse)
         .outerjoin(Product, Product.id == ProductSku.product_id)
+        .outerjoin(Inventory, inventory_join)
         .outerjoin(Warehouse, Warehouse.id == Inventory.warehouse_id)
     )
     count_stmt = (
         select(func.count())
-        .select_from(Inventory)
-        .join(ProductSku, ProductSku.id == Inventory.sku_id)
+        .select_from(ProductSku)
+        .outerjoin(Inventory, inventory_join)
         .where(*conditions)
     )
 
     total = db.scalar(count_stmt) or 0
     rows = db.execute(
         joins.where(*conditions)
-        .add_columns(ProductSku, Product, Warehouse)
         .order_by(shortage.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
 
     items = []
-    for inventory, sku, product, warehouse in rows:
-        data = inventory_out(inventory, sku, product, warehouse)
-        available_qty = (inventory.quantity or Decimal("0")) - (
-            inventory.reserved_quantity or Decimal("0")
+    for sku, product, inventory, warehouse in rows:
+        available_qty = (
+            (inventory.quantity or Decimal("0")) - (inventory.reserved_quantity or Decimal("0"))
+            if inventory is not None
+            else Decimal("0")
+        )
+        data = (
+            inventory_out(inventory, sku, product, warehouse)
+            if inventory is not None
+            else {
+                "id": None,
+                "sku_id": sku.id,
+                "sku_code": sku.sku_code,
+                "sku_status": int(sku.status),
+                "product_name": product.name if product else None,
+                "spec": sku.spec,
+                "warehouse_id": warehouse_id,
+                "warehouse_name": None,
+                "quantity": 0.0,
+                "reserved_quantity": 0.0,
+                "available_quantity": 0.0,
+            }
         )
         min_stock = sku.min_stock or Decimal("0")
         data["min_stock"] = fmt_dec(min_stock)
@@ -234,9 +267,9 @@ def list_inventory_history(
 def adjust_inventory(
     payload: InventoryAdjustIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("admin")),
+    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
-    """admin 专属：`quantity` 是目标值，后端算出差异后走 change_inventory。"""
+    """仓储和管理员可调整库存；`quantity` 是目标值，后端算出差异后走库存流水。"""
     sku = db.get(ProductSku, payload.sku_id)
     if sku is None:
         raise BizException("SKU 不存在")
@@ -289,3 +322,32 @@ def adjust_inventory(
             f"由 {_fmt_qty(before)} 变为 {_fmt_qty(target)}"
         ),
     )
+
+
+@router.post("/inbound", summary="采购入库")
+def inbound_inventory(
+    payload: InventoryInboundIn,
+    db: Session = Depends(get_db),
+    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    """仓储录入采购或提前备货数量，并写入采购入库库存流水。"""
+    sku = db.get(ProductSku, payload.sku_id)
+    if sku is None:
+        raise BizException("货号不存在")
+    if sku.status != 1:
+        raise BizException("货号已停用，无法采购入库")
+    warehouse = db.get(Warehouse, payload.warehouse_id)
+    if warehouse is None:
+        raise BizException("仓库不存在")
+
+    quantity = Decimal(payload.quantity).quantize(CENT, rounding=ROUND_HALF_UP)
+    change_inventory(
+        db,
+        [{"sku_id": sku.id, "warehouse_id": warehouse.id, "quantity": quantity}],
+        "PIN" + datetime.now().strftime("%Y%m%d%H%M%S%f"),
+        ORDER_TYPE_PURCHASE_IN,
+        current_user.id,
+        remark=payload.remark,
+    )
+    db.commit()
+    return ok(msg=f"已入库：{sku.sku_code} +{_fmt_qty(quantity)}")

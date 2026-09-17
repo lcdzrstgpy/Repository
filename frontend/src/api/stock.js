@@ -21,10 +21,15 @@ export function cancelOut(id) {
 }
 
 /**
- * 手动调整库存（仅 admin）
+ * 手动调整库存（仓储、管理员）
  * @param {Object} data { sku_id, warehouse_id, quantity, remark }
  *   quantity 为目标值，后端算差异后走 change_inventory
  */
 export function adjustInventory(data) {
   return request.post('/api/inventory/adjust', data)
+}
+
+/** 采购或提前备货入库（仓储、管理员）。quantity 为本次增加量。 */
+export function inboundInventory(data) {
+  return request.post('/api/inventory/inbound', data)
 }

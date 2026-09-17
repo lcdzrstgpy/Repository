@@ -50,7 +50,7 @@
         <div class="section-title">出库明细</div>
         <el-table :data="detail.items || []" border size="small" show-summary :summary-method="summaryMethod">
           <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="sku_code" label="SKU 编码" width="120" />
+          <el-table-column prop="sku_code" label="货号" width="120" />
           <el-table-column prop="product_name" label="商品名称" min-width="140" show-overflow-tooltip />
           <el-table-column prop="spec" label="规格" min-width="110" show-overflow-tooltip />
           <el-table-column prop="count" label="数量" width="90" align="right">

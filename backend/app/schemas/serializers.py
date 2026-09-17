@@ -224,6 +224,7 @@ def inventory_out(
         "id": inventory.id,
         "sku_id": inventory.sku_id,
         "sku_code": sku.sku_code if sku else None,
+        "sku_status": _status_int(sku.status) if sku else None,
         "product_name": product.name if product else None,
         "spec": sku.spec if sku else None,
         "warehouse_id": inventory.warehouse_id,

@@ -287,6 +287,73 @@ def init_sample_order(db: Session, users: dict[str, SysUser]) -> bool:
     return True
 
 
+def init_demo_orders(
+    db: Session,
+    users: dict[str, SysUser],
+    skus: dict[str, ProductSku],
+    warehouses: dict[str, Warehouse],
+) -> None:
+    """本地演示订单：覆盖仓储的待接单、待关联、备货、已发货与已完成状态。"""
+    operator = users["operator1"]
+    warehouse_user = users["warehouse1"]
+    main = warehouses["WH001"]
+    now = datetime.now()
+    demos = [
+        ("DEMO-PENDING-001", 10, None, None, [("玻璃杯 400ml", None, 1, 6, "20.00")]),
+        ("DEMO-CLAIMED-001", 20, main, warehouse_user, [("玻璃吸管", None, 0, 12, "2.00")]),
+        (
+            "DEMO-PREPARING-001",
+            30,
+            main,
+            warehouse_user,
+            [("商品A", "SKU001", 0, 130, "25.00"), ("商品B", "SKU002", 0, 25, "18.50")],
+        ),
+        ("DEMO-SHIPPED-001", 40, main, warehouse_user, [("商品C", "SKU003", 0, 4, "99.00")]),
+        ("DEMO-FINISHED-001", 50, main, warehouse_user, [("商品B", "SKU002", 0, 3, "18.50")]),
+    ]
+    created = 0
+    for no, status, warehouse, claimed_by, lines in demos:
+        if db.scalar(select(SalesOrder.id).where(SalesOrder.no == no)) is not None:
+            continue
+        total_count = sum((Decimal(count) for *_head, count, _price in lines), Decimal("0"))
+        total_price = sum((Decimal(count) * Decimal(price) for *_head, count, price in lines), Decimal("0"))
+        order = SalesOrder(
+            no=no,
+            status=status,
+            audit_status=0,
+            warehouse_id=warehouse.id if warehouse else None,
+            claimed_by=claimed_by.id if claimed_by else None,
+            claimed_at=now if claimed_by else None,
+            prepare_at=now if status >= 30 else None,
+            shipped_at=now if status >= 40 else None,
+            finished_at=now if status == 50 else None,
+            express_no="SF-DEMO-001" if status == 40 else None,
+            remark="本地测试演示订单",
+            total_count=total_count,
+            total_price=total_price,
+            created_by=operator.id,
+        )
+        db.add(order)
+        db.flush()
+        for product_name, sku_code, is_new, count, price in lines:
+            sku = skus.get(sku_code) if sku_code else None
+            db.add(
+                SalesOrderItem(
+                    order_id=order.id,
+                    product_name=product_name,
+                    sku_code=sku_code,
+                    is_new=is_new,
+                    sku_id=sku.id if sku else None,
+                    count=Decimal(count),
+                    out_count=Decimal(count) if status >= 40 else Decimal("0"),
+                    expect_price=Decimal(price),
+                    total_price=Decimal(count) * Decimal(price),
+                )
+            )
+        created += 1
+    print(f"[演示订单] 新增 {created} 条；重复执行不会重复写入")
+
+
 def main() -> int:
     print(f"[配置] 数据库：{settings.DATABASE_URL}")
     print(f"[时间] 开始初始化 {datetime.now():%Y-%m-%d %H:%M:%S}")
@@ -302,6 +369,7 @@ def main() -> int:
             init_partners(db)
             init_inventory(db, skus, warehouses)
             init_sample_order(db, users)
+            init_demo_orders(db, users, skus, warehouses)
             db.commit()
     except Exception as exc:  # noqa: BLE001
         print(f"[失败] 初始化出错：{type(exc).__name__}: {exc}", file=sys.stderr)

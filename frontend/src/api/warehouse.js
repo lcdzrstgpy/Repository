@@ -10,6 +10,30 @@ export function getPendingOrders(params) {
   return request.get('/api/warehouse/pending-orders', { params })
 }
 
+/** 待备货订单按仓库、货号汇总的采购需求。 */
+export function getPurchaseSummary(warehouseId) {
+  return request.get('/api/warehouse/purchase-summary', {
+    params: warehouseId ? { warehouse_id: warehouseId } : {}
+  })
+}
+
+/** 备货中订单：按可完整发货优先级排序。 */
+export function getPreparingOrders(params) {
+  return request.get('/api/warehouse/preparing-orders', { params })
+}
+
+/** 仓储货号管理：查询与按三级分类自动生成货号。 */
+export function getItemNumbers() {
+  return request.get('/api/warehouse/item-numbers')
+}
+export function createItemNumber(data) {
+  return request.post('/api/warehouse/item-numbers', data)
+}
+
+export function updateItemNumberStatus(id, status) {
+  return request.patch(`/api/warehouse/item-numbers/${id}/status`, { status })
+}
+
 /** 接单（仅 status 10，成功后 status = 20） */
 export function claimOrder(id, warehouseId) {
   return request.post(`/api/warehouse/orders/${id}/claim`, { warehouse_id: warehouseId })

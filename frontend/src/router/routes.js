@@ -75,7 +75,7 @@ export const routes = [
         name: 'WarehousePending',
         component: () => import('@/views/warehouse/PendingOrders.vue'),
         meta: {
-          title: '待接单',
+          title: '订单处理',
           icon: 'Bell',
           roles: ['warehouse', 'admin'],
           menu: true,
@@ -87,7 +87,7 @@ export const routes = [
         name: 'WarehousePreparing',
         component: () => import('@/views/warehouse/PreparingOrders.vue'),
         meta: {
-          title: '备货中',
+          title: '备货发货',
           icon: 'Box',
           roles: ['warehouse', 'admin'],
           menu: true,
@@ -102,7 +102,7 @@ export const routes = [
           title: '我处理的单',
           icon: 'Tickets',
           roles: ['warehouse', 'admin'],
-          menu: true,
+          menu: false,
           group: '仓储管理'
         }
       },
@@ -111,10 +111,10 @@ export const routes = [
         name: 'WarehouseOutList',
         component: () => import('@/views/warehouse/OutList.vue'),
         meta: {
-          title: '出库单',
+          title: '出库记录',
           icon: 'TakeawayBox',
           roles: ['warehouse', 'admin'],
-          menu: true,
+          menu: false,
           group: '仓储管理'
         }
       },
@@ -123,11 +123,35 @@ export const routes = [
         name: 'WarehousePurchaseList',
         component: () => import('@/views/warehouse/PurchaseList.vue'),
         meta: {
-          title: '采购单',
+          title: '采购单记录',
           icon: 'ShoppingCart',
           // approver 需要进入列表完成审批（契约 11）
           roles: ['warehouse', 'admin', 'approver'],
-          menu: true,
+          menu: false,
+          group: '仓储管理'
+        }
+      },
+      {
+        path: 'warehouse/purchase-summary',
+        name: 'WarehousePurchaseSummary',
+        component: () => import('@/views/warehouse/PurchaseSummary.vue'),
+        meta: {
+          title: '采购汇总',
+          icon: 'ShoppingCart',
+          roles: ['warehouse', 'admin'],
+          menu: false,
+          group: '仓储管理'
+        }
+      },
+      {
+        path: 'warehouse/item-numbers',
+        name: 'WarehouseItemNumberManage',
+        redirect: '/warehouse/inventory',
+        meta: {
+          title: '货号管理',
+          icon: 'Grid',
+          roles: ['warehouse', 'admin'],
+          menu: false,
           group: '仓储管理'
         }
       },
@@ -150,7 +174,7 @@ export const routes = [
         name: 'WarehouseInventory',
         component: () => import('@/views/warehouse/InventoryList.vue'),
         meta: {
-          title: '库存查询',
+          title: '货号库存',
           icon: 'Coin',
           roles: ['warehouse', 'admin'],
           menu: true,
@@ -165,7 +189,7 @@ export const routes = [
           title: '库存流水',
           icon: 'Clock',
           roles: ['warehouse', 'admin'],
-          menu: true,
+          menu: false,
           group: '库存管理'
         }
       },
@@ -177,7 +201,7 @@ export const routes = [
           title: '库存预警',
           icon: 'Warning',
           roles: ['warehouse', 'admin'],
-          menu: true,
+          menu: false,
           group: '库存管理'
         }
       },
@@ -215,7 +239,7 @@ export const routes = [
           title: 'SKU 管理',
           icon: 'Grid',
           roles: ['admin'],
-          menu: true,
+          menu: false,
           group: '基础数据'
         }
       },

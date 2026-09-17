@@ -23,6 +23,15 @@ class InventoryAdjustIn(BaseModel):
     remark: str | None = Field(None, max_length=500, description="备注")
 
 
+class InventoryInboundIn(BaseModel):
+    """采购或提前备货入库。quantity 是本次增加量。"""
+
+    sku_id: int = Field(..., gt=0, description="SKU id")
+    warehouse_id: int = Field(..., gt=0, description="仓库 id")
+    quantity: Decimal = Field(..., gt=0, description="本次入库数量")
+    remark: str | None = Field(None, max_length=500, description="备注")
+
+
 # ---------------------------------------------------------------- 响应
 def sales_out_item_out(
     item: SalesOutItem, sku: ProductSku | None = None, product: Product | None = None

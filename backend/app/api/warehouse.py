@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,12 +27,15 @@ from app.api.stock import create_sales_out_from_order
 from app.core.database import get_db
 from app.core.response import BizException, normalize_page, ok, paginate
 from app.core.security import require_roles
-from app.models.basic import Product, ProductSku, Warehouse
+from app.models.basic import Product, ProductCategory, ProductSku, Warehouse
+from app.models.inventory import Inventory
 from app.models.order import (
     ORDER_STATUS_CLAIMED,
     ORDER_STATUS_PENDING,
+    ORDER_STATUS_PREPARING,
     ORDER_STATUS_QUANTITY_CONFIRM,
     SalesOrder,
+    SalesOrderItem,
     ensure_transition,
     status_text,
 )
@@ -45,25 +48,190 @@ router = APIRouter(prefix="/api/warehouse", tags=["仓储侧·订单处理"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/pending-orders", summary="待接单列表")
+@router.get("/pending-orders", summary="仓储订单列表")
 def pending_orders(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1),
+    keyword: str | None = Query(None, max_length=100, description="订单号、商品名或备注"),
+    status: int | None = Query(None, description="订单状态"),
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    """订单处理页：按订单号、商品名、备注和状态查询全部订单。
+
+    仓储只可对待接单订单执行接单，其他状态保留查询和详情查看能力。
+    """
+    page, page_size = normalize_page(page, page_size)
+    conditions = []
+    if status is not None:
+        conditions.append(SalesOrder.status == status)
+    if keyword and keyword.strip():
+        text = f"%{keyword.strip()}%"
+        conditions.append(
+            or_(
+                SalesOrder.no.like(text),
+                SalesOrder.remark.like(text),
+                SalesOrder.items.any(SalesOrderItem.product_name.like(text)),
+            )
+        )
+    total = db.scalar(select(func.count()).select_from(SalesOrder).where(*conditions)) or 0
+    rows = db.scalars(
+        select(SalesOrder)
+        .where(*conditions)
+        .order_by(SalesOrder.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return ok(paginate(build_order_briefs(db, list(rows)), total, page, page_size))
+
+
+@router.get("/purchase-summary", summary="待备货订单采购汇总")
+def purchase_summary(
+    warehouse_id: int | None = Query(None, gt=0, description="按仓库筛选"),
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    """按仓库和货号汇总所有「备货中」订单的未发数量，辅助一次性采购。
+
+    只有运营确认过数量且已进入备货中的订单才计入；已发货、已取消和仍待确认的
+    订单不会混入采购需求。建议采购量 = max(待备数量 - 当前可用库存, 0)。
+    """
+    conditions = [SalesOrder.status == ORDER_STATUS_PREPARING, SalesOrderItem.sku_id.is_not(None)]
+    if warehouse_id is not None:
+        conditions.append(SalesOrder.warehouse_id == warehouse_id)
+
+    rows = db.execute(
+        select(
+            SalesOrder.warehouse_id,
+            Warehouse.name.label("warehouse_name"),
+            SalesOrderItem.sku_id,
+            ProductSku.sku_code,
+            Product.name.label("product_name"),
+            ProductSku.spec,
+            ProductSku.min_stock,
+            func.sum(SalesOrderItem.count - SalesOrderItem.out_count).label("need_count"),
+            func.count(func.distinct(SalesOrder.id)).label("order_count"),
+        )
+        .join(SalesOrder, SalesOrder.id == SalesOrderItem.order_id)
+        .join(ProductSku, ProductSku.id == SalesOrderItem.sku_id)
+        .join(Product, Product.id == ProductSku.product_id)
+        .join(Warehouse, Warehouse.id == SalesOrder.warehouse_id)
+        .where(*conditions)
+        .group_by(
+            SalesOrder.warehouse_id,
+            Warehouse.name,
+            SalesOrderItem.sku_id,
+            ProductSku.sku_code,
+            Product.name,
+            ProductSku.spec,
+            ProductSku.min_stock,
+        )
+        .having(func.sum(SalesOrderItem.count - SalesOrderItem.out_count) > 0)
+        .order_by(Warehouse.name.asc(), ProductSku.sku_code.asc())
+    ).all()
+
+    keys = {(row.warehouse_id, row.sku_id) for row in rows}
+    inventories = (
+        db.scalars(
+            select(Inventory).where(
+                tuple_(Inventory.warehouse_id, Inventory.sku_id).in_(keys)
+            )
+        ).all()
+        if keys
+        else []
+    )
+    stock_map = {
+        (inventory.warehouse_id, inventory.sku_id): Decimal(inventory.quantity or 0)
+        - Decimal(inventory.reserved_quantity or 0)
+        for inventory in inventories
+    }
+    return ok(
+        [
+            {
+                "warehouse_id": row.warehouse_id,
+                "warehouse_name": row.warehouse_name,
+                "sku_id": row.sku_id,
+                "sku_code": row.sku_code,
+                "product_name": row.product_name,
+                "spec": row.spec,
+                "min_stock": float(row.min_stock or 0),
+                "need_count": float(row.need_count or 0),
+                "order_count": int(row.order_count or 0),
+                "available_quantity": float(stock_map.get((row.warehouse_id, row.sku_id), 0)),
+                "suggested_purchase": float(
+                    max(max(Decimal(row.need_count or 0), Decimal(row.min_stock or 0)) - stock_map.get((row.warehouse_id, row.sku_id), 0), 0)
+                ),
+            }
+            for row in rows
+        ]
+    )
+
+
+@router.get("/preparing-orders", summary="备货订单优先级")
+def preparing_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
     db: Session = Depends(get_db),
     _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
 ):
-    """订单池：返回 status = 10 的全部订单（不分下单人）。"""
+    """为当前备货批次挑出可完整发货的订单。
+
+    本系统尚未建立独立批次表，因此同一仓库、当前「备货中」订单视为同一批次。
+    每仓库按下单时间依次判断：任一货号不足的订单暂不占用库存；一张订单所有
+    明细都足够时，才从本次计算用的可用库存中扣除，并标为可优先发货。这样缺货
+    订单不会阻塞后续能够凑齐的订单，也不会把同一库存重复分配给多张订单。
+    """
     page, page_size = normalize_page(page, page_size)
-    condition = SalesOrder.status == ORDER_STATUS_PENDING
-    total = db.scalar(select(func.count()).select_from(SalesOrder).where(condition)) or 0
-    rows = db.scalars(
+    orders = db.scalars(
         select(SalesOrder)
-        .where(condition)
-        .order_by(SalesOrder.id.asc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        .where(SalesOrder.status == ORDER_STATUS_PREPARING)
+        .order_by(SalesOrder.warehouse_id.asc(), SalesOrder.created_at.asc(), SalesOrder.id.asc())
     ).all()
-    return ok(paginate(build_order_briefs(db, list(rows)), total, page, page_size))
+
+    keys = {
+        (order.warehouse_id, item.sku_id)
+        for order in orders
+        if order.warehouse_id is not None
+        for item in order.items
+        if item.sku_id is not None
+    }
+    inventories = (
+        db.scalars(
+            select(Inventory).where(tuple_(Inventory.warehouse_id, Inventory.sku_id).in_(keys))
+        ).all()
+        if keys
+        else []
+    )
+    available = {
+        (inventory.warehouse_id, inventory.sku_id): Decimal(inventory.quantity or 0)
+        - Decimal(inventory.reserved_quantity or 0)
+        for inventory in inventories
+    }
+
+    priority = {}
+    for order in orders:
+        required = {}
+        for item in order.items:
+            if order.warehouse_id is None or item.sku_id is None:
+                required = None
+                break
+            key = (order.warehouse_id, item.sku_id)
+            required[key] = required.get(key, Decimal("0")) + Decimal(item.count or 0) - Decimal(item.out_count or 0)
+
+        can_ship = required is not None and all(available.get(key, Decimal("0")) >= count for key, count in required.items())
+        priority[order.id] = can_ship
+        if can_ship:
+            for key, count in required.items():
+                available[key] = available.get(key, Decimal("0")) - count
+
+    ordered = sorted(orders, key=lambda order: (not priority[order.id], order.created_at, order.id))
+    total = len(ordered)
+    page_rows = ordered[(page - 1) * page_size : page * page_size]
+    result = build_order_briefs(db, page_rows)
+    for row in result:
+        row["can_ship"] = priority[row["id"]]
+        row["stock_status_text"] = "可优先发货" if row["can_ship"] else "缺货待采购"
+    return ok(paginate(result, total, page, page_size))
 
 
 @router.post("/orders/{order_id}/claim", summary="接单")
@@ -105,20 +273,26 @@ def claim_order(
 
 
 class NewSkuIn(BaseModel):
-    """「新建」模式入参：仓库现场新建一个货号（SKU）。"""
+    """仓库自动生成并确认货号。"""
 
-    sku_code: str = Field(..., min_length=1, max_length=64, description="新货号")
     product_name: str = Field(..., min_length=1, max_length=200, description="商品名")
+    category_level1: str = Field(..., min_length=1, max_length=100, description="一级分类")
+    category_level2: str | None = Field(None, max_length=100, description="二级分类")
+    category_level3: str | None = Field(None, max_length=100, description="三级分类")
     spec: str | None = Field(None, max_length=200, description="规格")
     price: Decimal = Field(Decimal("0.00"), ge=0, description="售价")
 
-    @field_validator("sku_code", "product_name", mode="before")
+    @field_validator("product_name", "category_level1", "category_level2", "category_level3", mode="before")
     @classmethod
     def strip_text(cls, value):
-        """货号 / 商品名去掉首尾空白，避免「 HW-001 」与「HW-001」被当成两个货号。"""
+        """分类和商品名去掉首尾空白。"""
         if isinstance(value, str):
             return value.strip()
         return value
+
+
+class ItemNumberStatusIn(BaseModel):
+    status: int = Field(..., ge=0, le=1, description="货号状态：1 启用，0 停用")
 
 
 class BindSkuItemIn(BaseModel):
@@ -168,14 +342,43 @@ def _generate_product_code(db: Session) -> str:
     return f"P{seq:03d}"
 
 
-def _create_sku_for_item(db: Session, new_sku: NewSkuIn) -> int:
-    """「新建」模式：按货号创建 SKU（同名商品已存在则复用），返回新 SKU 的 id。
+def _category_part(db: Session, name: str | None, level: int, parent_id: int | None) -> ProductCategory:
+    """同级同名分类复用；缺失时生成 A/B/C 段流水。"""
+    category_name = (name or "其他").strip() or "其他"
+    category = db.scalars(
+        select(ProductCategory).where(
+            ProductCategory.parent_id == parent_id,
+            ProductCategory.level == level,
+            ProductCategory.name == category_name,
+        )
+    ).first()
+    if category is not None:
+        return category
+    count = db.scalar(
+        select(func.count()).select_from(ProductCategory).where(
+            ProductCategory.parent_id == parent_id, ProductCategory.level == level
+        )
+    ) or 0
+    category = ProductCategory(
+        parent_id=parent_id,
+        level=level,
+        name=category_name,
+        code_segment=f"{'ABC'[level - 1]}{int(count) + 1:03d}",
+    )
+    db.add(category)
+    db.flush()
+    return category
 
-    商品按 `product_name` 查找，不存在才创建（编码自动生成）；
-    `sku_code` 重复时返回 code=1001。函数内不 commit，由调用方统一提交。
-    """
-    if db.scalar(select(ProductSku.id).where(ProductSku.sku_code == new_sku.sku_code)) is not None:
-        raise BizException(f"货号 {new_sku.sku_code} 已存在，请改为关联已有货号")
+
+def _create_sku_for_item(db: Session, new_sku: NewSkuIn) -> ProductSku:
+    """按三级分类自动生成不可编辑货号，并创建商品规格。"""
+    level1 = _category_part(db, new_sku.category_level1, 1, None)
+    level2 = _category_part(db, new_sku.category_level2, 2, level1.id)
+    level3 = _category_part(db, new_sku.category_level3, 3, level2.id)
+    sku_code = f"{level1.code_segment}-{level2.code_segment}-{level3.code_segment}"
+    existing = db.scalar(select(ProductSku).where(ProductSku.category_id == level3.id))
+    if existing is not None:
+        raise BizException(f"该三级分类已有货号：{existing.sku_code}，请直接关联使用")
 
     product = db.scalar(select(Product).where(Product.name == new_sku.product_name))
     if product is None:
@@ -189,15 +392,72 @@ def _create_sku_for_item(db: Session, new_sku: NewSkuIn) -> int:
 
     sku = ProductSku(
         product_id=product.id,
-        sku_code=new_sku.sku_code,
+        category_id=level3.id,
+        sku_code=sku_code,
         spec=new_sku.spec,
         price=new_sku.price,
-        min_stock=Decimal("0.00"),
+        min_stock=Decimal("10.00"),
         status=1,
     )
     db.add(sku)
     db.flush()  # 拿到 sku.id，同时让同一请求内重复的货号能被查出来
-    return sku.id
+    return sku
+
+
+@router.get("/item-numbers", summary="货号管理列表")
+def item_numbers(
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    rows = db.execute(
+        select(ProductSku, Product)
+        .join(Product, Product.id == ProductSku.product_id)
+        .order_by(ProductSku.id.desc())
+    ).all()
+    return ok([
+        {
+            "id": sku.id,
+            "sku_code": sku.sku_code,
+            "product_name": product.name,
+            "spec": sku.spec,
+            "status": int(sku.status),
+        }
+        for sku, product in rows
+    ])
+
+
+@router.post("/item-numbers", summary="自动生成货号")
+def create_item_number(
+    payload: NewSkuIn,
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    try:
+        sku = _create_sku_for_item(db, payload)
+        db.commit()
+    except BizException:
+        db.rollback()
+        raise
+    except IntegrityError:
+        db.rollback()
+        raise BizException("货号生成冲突，请刷新后重试") from None
+    return ok({"id": sku.id, "sku_code": sku.sku_code}, msg="货号已自动生成")
+
+
+@router.patch("/item-numbers/{sku_id}/status", summary="修改货号状态")
+def update_item_number_status(
+    sku_id: int,
+    payload: ItemNumberStatusIn,
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    """启用或停用货号；停用不会删除已有库存、订单和库存流水。"""
+    sku = db.get(ProductSku, sku_id)
+    if sku is None:
+        raise BizException("货号不存在")
+    sku.status = payload.status
+    db.commit()
+    return ok({"id": sku.id, "status": int(sku.status)}, msg="货号状态已更新")
 
 
 @router.post("/orders/{order_id}/bind-sku", summary="关联 / 新建货号")
@@ -237,10 +497,12 @@ def bind_order_sku(
                 sku = db.scalar(select(ProductSku).where(ProductSku.sku_code == line.sku_code))
                 if sku is None:
                     raise BizException(f"货号 {line.sku_code} 在系统中不存在，请改为新建")
+                if sku.status != 1:
+                    raise BizException(f"货号 {line.sku_code} 已停用，无法关联")
                 item.sku_id = sku.id
             else:
                 # 模式二：新建货号（new_sku 已在 Pydantic 层保证非空）
-                item.sku_id = _create_sku_for_item(db, line.new_sku)
+                item.sku_id = _create_sku_for_item(db, line.new_sku).id
 
         # 契约 19.7：本次调用完成后若所有明细行的 sku_id 均不为空，则自动从「已接单(20)」
         # 流转到「数量待确认(25)」。部分关联时 all() 为 False，状态保持 20。

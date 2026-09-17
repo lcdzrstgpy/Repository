@@ -114,7 +114,7 @@
     </template>
 
     <!-- 新建货号弹窗 -->
-    <el-dialog v-model="newSkuVisible" title="新建货号" width="480px" append-to-body>
+    <el-dialog v-model="newSkuVisible" title="自动生成货号" width="520px" append-to-body>
       <el-descriptions :column="1" border size="small" style="margin-bottom: 16px">
         <el-descriptions-item label="商品名">{{ newSkuRow?.product_name }}</el-descriptions-item>
         <el-descriptions-item label="数量">
@@ -123,8 +123,14 @@
       </el-descriptions>
 
       <el-form ref="newSkuFormRef" :model="newSkuForm" :rules="newSkuRules" label-width="90px">
-        <el-form-item label="SKU 编码" prop="sku_code">
-          <el-input v-model="newSkuForm.sku_code" placeholder="请输入新货号（唯一）" maxlength="64" />
+        <el-form-item label="一级分类" prop="category_level1">
+          <el-input v-model="newSkuForm.category_level1" placeholder="如：杯子" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="二级分类">
+          <el-input v-model="newSkuForm.category_level2" placeholder="如：玻璃杯（选填）" maxlength="100" />
+        </el-form-item>
+        <el-form-item label="三级分类">
+          <el-input v-model="newSkuForm.category_level3" placeholder="如：400ml（选填）" maxlength="100" />
         </el-form-item>
         <el-form-item label="规格" prop="spec">
           <el-input v-model="newSkuForm.spec" placeholder="选填，如：黑色/大号" maxlength="200" />
@@ -143,7 +149,7 @@
 
       <template #footer>
         <el-button @click="newSkuVisible = false">取消</el-button>
-        <el-button type="primary" :loading="binding" @click="handleCreateSku">确认新建并关联</el-button>
+        <el-button type="primary" :loading="binding" @click="handleCreateSku">生成货号并关联</el-button>
       </template>
     </el-dialog>
 
@@ -205,10 +211,10 @@ const detail = ref(null)
 const newSkuVisible = ref(false)
 const newSkuFormRef = ref(null)
 const newSkuRow = ref(null)
-const newSkuForm = ref({ sku_code: '', spec: '', price: 0 })
+const newSkuForm = ref({ category_level1: '', category_level2: '', category_level3: '', spec: '', price: 0 })
 
 const newSkuRules = {
-  sku_code: [{ required: true, message: '请输入 SKU 编码', trigger: 'blur' }]
+  category_level1: [{ required: true, message: '请输入一级分类', trigger: 'blur' }]
 }
 
 const claimVisible = ref(false)
@@ -308,7 +314,9 @@ async function handleBind(row) {
 function openNewSku(row) {
   newSkuRow.value = row
   newSkuForm.value = {
-    sku_code: '',
+    category_level1: '',
+    category_level2: '',
+    category_level3: '',
     spec: '',
     price: Number(row.expect_price) || 0
   }
@@ -328,8 +336,10 @@ async function handleCreateSku() {
         {
           item_id: newSkuRow.value.id,
           new_sku: {
-            sku_code: newSkuForm.value.sku_code.trim(),
             product_name: newSkuRow.value.product_name,
+            category_level1: newSkuForm.value.category_level1.trim(),
+            category_level2: newSkuForm.value.category_level2.trim() || null,
+            category_level3: newSkuForm.value.category_level3.trim() || null,
             spec: newSkuForm.value.spec,
             price: Number(newSkuForm.value.price) || 0
           }

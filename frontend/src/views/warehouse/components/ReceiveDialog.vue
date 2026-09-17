@@ -52,7 +52,7 @@
       <div class="section-title">入库明细（默认填满剩余量，可修改为部分入库）</div>
       <el-table :data="rows" border size="small">
         <el-table-column type="index" label="序号" width="60" align="center" />
-        <el-table-column prop="sku_code" label="SKU 编码" width="110" />
+        <el-table-column prop="sku_code" label="货号" width="110" />
         <el-table-column prop="product_name" label="商品名称" min-width="130" show-overflow-tooltip />
         <el-table-column prop="spec" label="规格" min-width="110" show-overflow-tooltip />
         <el-table-column label="采购数量" width="90" align="right">

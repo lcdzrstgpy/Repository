@@ -1,10 +1,32 @@
 <template>
   <div class="page-container">
     <el-card shadow="never">
+      <div class="module-purpose">关联 / 新建货号</div>
+      <el-form :model="query" inline class="search-form">
+        <el-form-item label="关键词">
+          <el-input
+            v-model="query.keyword"
+            placeholder="订单号、商品名或备注"
+            clearable
+            style="width: 240px"
+            @keyup.enter="handleSearch"
+          />
+        </el-form-item>
+        <el-form-item label="状态">
+          <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 150px">
+            <el-option v-for="item in ORDER_STATUS_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="handleSearch">查询</el-button>
+          <el-button @click="handleReset">重置</el-button>
+        </el-form-item>
+      </el-form>
+
       <div class="table-toolbar">
         <div>
-          <span class="section-title">待接单订单</span>
-          <span class="text-muted" style="margin-left: 12px">共 {{ total }} 条，仅显示「待接单」状态的订单</span>
+          <span class="section-title">全部订单</span>
+          <span class="text-muted" style="margin-left: 12px">共 {{ total }} 条；仅「待接单」状态可接单</span>
         </div>
         <el-button :loading="loading" @click="load">
           <el-icon><Refresh /></el-icon>
@@ -14,6 +36,7 @@
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="no" label="订单号" width="170" />
+        <el-table-column prop="status_text" label="状态" width="105" align="center" />
         <el-table-column prop="item_count" label="商品行数" width="100" align="center">
           <template #default="{ row }">{{ formatCount(row.item_count) }}</template>
         </el-table-column>
@@ -36,7 +59,7 @@
         <el-table-column label="操作" width="140" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button link type="primary" @click="openClaim(row)">接单并关联货号</el-button>
+            <el-button v-if="row.status === 10" link type="primary" @click="openClaim(row)">接单并关联货号</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -103,6 +126,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPendingOrders, claimOrder } from '@/api/warehouse'
 import { getWarehouseOptions } from '@/api/basic'
+import { ORDER_STATUS_OPTIONS } from '@/utils/constants'
 import { formatAmount, formatCount } from '@/utils/format'
 import WarehouseOrderDetailDrawer from './components/WarehouseOrderDetailDrawer.vue'
 
@@ -114,7 +138,9 @@ const warehouseOptions = ref([])
 
 const query = reactive({
   page: 1,
-  page_size: 20
+  page_size: 20,
+  keyword: '',
+  status: null
 })
 
 const claimVisible = ref(false)
@@ -133,12 +159,27 @@ const claimRules = {
 async function load() {
   loading.value = true
   try {
-    const data = await getPendingOrders({ page: query.page, page_size: query.page_size })
+    const params = { page: query.page, page_size: query.page_size }
+    if (query.keyword.trim()) params.keyword = query.keyword.trim()
+    if (query.status !== null) params.status = query.status
+    const data = await getPendingOrders(params)
     list.value = data?.list || []
     total.value = data?.total || 0
   } finally {
     loading.value = false
   }
+}
+
+function handleSearch() {
+  query.page = 1
+  load()
+}
+
+function handleReset() {
+  query.keyword = ''
+  query.status = null
+  query.page = 1
+  load()
 }
 
 function handleSizeChange(size) {
@@ -204,5 +245,16 @@ onMounted(() => {
   color: #303133;
   border-left: 3px solid #409eff;
   padding-left: 8px;
+}
+
+.search-form {
+  margin-bottom: 4px;
+}
+
+.module-purpose {
+  margin-bottom: 14px;
+  color: #409eff;
+  font-size: 18px;
+  font-weight: 600;
 }
 </style>
