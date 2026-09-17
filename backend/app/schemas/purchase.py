@@ -35,6 +35,7 @@ class PurchaseOrderCreateIn(BaseModel):
 
     supplier_id: int = Field(..., gt=0, description="供应商 id")
     sales_order_id: int | None = Field(None, gt=0, description="关联销售订单 id（因缺货采购时传）")
+    warehouse_id: int | None = Field(None, gt=0, description="采购完成后的目标入库仓库 id")
     expect_date: date | None = Field(None, description="期望到货日期")
     remark: str | None = Field(None, max_length=500, description="备注")
     items: list[PurchaseItemIn] = Field(..., min_length=1, description="采购明细，至少一条")
@@ -107,6 +108,7 @@ def purchase_order_brief(
     order: PurchaseOrder,
     supplier_name: str | None = None,
     sales_order_no: str | None = None,
+    warehouse_name: str | None = None,
     created_by_name: str | None = None,
     approved_by_name: str | None = None,
 ) -> dict:
@@ -116,6 +118,8 @@ def purchase_order_brief(
         "no": order.no,
         "supplier_name": supplier_name,
         "sales_order_no": sales_order_no,
+        "warehouse_id": order.warehouse_id,
+        "warehouse_name": warehouse_name,
         "status": int(order.status) if order.status is not None else 0,
         "status_text": purchase_status_text(order.status),
         "total_count": fmt_dec(order.total_count),
@@ -131,13 +135,14 @@ def purchase_order_detail(
     order: PurchaseOrder,
     supplier_name: str | None = None,
     sales_order_no: str | None = None,
+    warehouse_name: str | None = None,
     created_by_name: str | None = None,
     approved_by_name: str | None = None,
     items: list[dict] | None = None,
 ) -> dict:
     """采购单详情（列表元素 + 备注 / 关联 id / 审批时间 + 明细）。"""
     data = purchase_order_brief(
-        order, supplier_name, sales_order_no, created_by_name, approved_by_name
+        order, supplier_name, sales_order_no, warehouse_name, created_by_name, approved_by_name
     )
     data.update(
         {

@@ -254,6 +254,7 @@ if it_new:
             "new_sku": {
                 "sku_code": "NEW-SMOKE-001",
                 "product_name": it_new["product_name"],
+                "category_level1": "测试分类",
                 "spec": "标准",
                 "price": 8.5,
             },
@@ -414,6 +415,57 @@ check("仓储发货时拦截库存不足", body(r).get("code") == 1001, str(body
 
 # ---------------------------------------------------------------- 采购链路
 print("\n=== 10. 采购链路 ===")
+# 缺货订单候选：仅返回备货中且按当前可用库存确有短缺的订单，并给出自动采购数量。
+r = client.get("/api/purchase-orders/candidates", headers=wh_h)
+candidates = body(r).get("data", [])
+candidate = next((row for row in candidates if row.get("id") == big_order), None)
+check("缺货订单可作为采购候选", body(r).get("code") == 0 and candidate, str(body(r))[:180])
+candidate_item = (candidate or {}).get("items", [None])[0]
+check(
+    "采购候选按订单需求减可用库存生成短缺数量",
+    candidate_item and candidate_item.get("suggested_purchase", 0) > 0,
+    str(candidate_item)[:180],
+)
+
+# 仓管创建后即可在采购单管理页完成采购并入库，不再依赖审批角色。
+r = client.post(
+    "/api/purchase-orders",
+    json={
+        "supplier_id": sup[0]["id"] if sup else 3,
+        "sales_order_id": big_order,
+        "warehouse_id": (candidate or {}).get("warehouse_id", 1),
+        "remark": "缺货订单自动补货",
+        "items": [
+            {
+                "sku_id": candidate_item["sku_id"],
+                "count": candidate_item["suggested_purchase"],
+                "price": 0,
+            }
+        ]
+        if candidate_item
+        else [{"sku_id": 1, "count": 1, "price": 0}],
+    },
+    headers=wh_h,
+)
+candidate_po = body(r).get("data", {})
+candidate_po_id = candidate_po.get("id")
+check("从缺货订单创建采购单", body(r).get("code") == 0 and candidate_po_id, str(body(r))[:180])
+
+if candidate_po_id:
+    candidate_po_items = candidate_po.get("items", [])
+    r = client.post(
+        f"/api/purchase-orders/{candidate_po_id}/receive",
+        json={
+            "warehouse_id": candidate_po.get("warehouse_id") or 1,
+            "items": [
+                {"order_item_id": item["id"], "count": item["count"]}
+                for item in candidate_po_items
+            ],
+        },
+        headers=wh_h,
+    )
+    check("仓管可直接采购完成并入库", body(r).get("code") == 0, str(body(r))[:180])
+
 # 采购价上限校验（契约 17.3）：SKU001 在 TB20260917999 里的预计成本是 25.00
 r = client.post(
     "/api/purchase-orders",

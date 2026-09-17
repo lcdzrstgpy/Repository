@@ -123,20 +123,18 @@ export const routes = [
         name: 'WarehousePurchaseList',
         component: () => import('@/views/warehouse/PurchaseList.vue'),
         meta: {
-          title: '采购单记录',
+          title: '采购单管理',
           icon: 'ShoppingCart',
-          // approver 需要进入列表完成审批（契约 11）
-          roles: ['warehouse', 'admin', 'approver'],
-          menu: false,
+          roles: ['warehouse', 'admin'],
+          menu: true,
           group: '仓储管理'
         }
       },
       {
         path: 'warehouse/purchase-summary',
-        name: 'WarehousePurchaseSummary',
-        component: () => import('@/views/warehouse/PurchaseSummary.vue'),
+        redirect: '/warehouse/purchase',
         meta: {
-          title: '采购汇总',
+          title: '采购单管理',
           icon: 'ShoppingCart',
           roles: ['warehouse', 'admin'],
           menu: false,

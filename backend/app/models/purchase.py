@@ -14,15 +14,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base, TimestampMixin
 
 # 采购单状态值（契约 10.2）
-PURCHASE_STATUS_PENDING = 10  # 待审批
-PURCHASE_STATUS_APPROVED = 20  # 已审批
+PURCHASE_STATUS_PENDING = 10  # 待采购
+PURCHASE_STATUS_APPROVED = 20  # 历史兼容：采购中
 PURCHASE_STATUS_RECEIVED = 30  # 已入库
 PURCHASE_STATUS_CANCELLED = 90  # 已取消
 
 # 状态中文名，列表/详情接口的 status_text 与流转错误提示都取自这里
 PURCHASE_STATUS_TEXT: dict[int, str] = {
-    PURCHASE_STATUS_PENDING: "待审批",
-    PURCHASE_STATUS_APPROVED: "已审批",
+    PURCHASE_STATUS_PENDING: "待采购",
+    PURCHASE_STATUS_APPROVED: "采购中",
     PURCHASE_STATUS_RECEIVED: "已入库",
     PURCHASE_STATUS_CANCELLED: "已取消",
 }
@@ -67,6 +67,13 @@ class PurchaseOrder(Base, TimestampMixin):
         nullable=True,
         index=True,
         comment="关联销售订单 id（因缺货采购时写入）",
+    )
+    warehouse_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("warehouse.id"),
+        nullable=True,
+        index=True,
+        comment="采购完成后的目标入库仓库",
     )
     status: Mapped[int] = mapped_column(
         TINYINT,

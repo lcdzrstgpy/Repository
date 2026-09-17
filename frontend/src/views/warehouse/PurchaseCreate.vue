@@ -13,7 +13,7 @@
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-row :gutter="16">
-          <el-col :span="10">
+          <el-col :span="8">
             <el-form-item label="供应商" prop="supplier_id">
               <el-select
                 v-model="form.supplier_id"
@@ -31,7 +31,14 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="14">
+          <el-col :span="8">
+            <el-form-item label="目标入库仓库" prop="warehouse_id">
+              <el-select v-model="form.warehouse_id" placeholder="请选择仓库" filterable style="width: 100%">
+                <el-option v-for="item in warehouseOptions" :key="item.id" :label="item.name" :value="item.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="8">
             <el-form-item label="期望到货日期">
               <el-date-picker
                 v-model="form.expect_date"
@@ -46,22 +53,22 @@
 
         <el-row :gutter="16">
           <el-col :span="10">
-            <el-form-item label="关联销售订单">
+            <el-form-item label="关联缺货订单">
               <el-select
                 v-model="form.sales_order_id"
-                placeholder="从待备货订单中选择（选填）"
+                placeholder="选择后自动带入短缺 SKU 与数量（选填）"
                 filterable
                 clearable
                 style="width: 100%"
               >
                 <el-option
-                  v-for="item in salesOrderOptions"
+                  v-for="item in purchaseCandidates"
                   :key="item.id"
                   :label="item.no"
                   :value="item.id"
                 >
-                  <span>{{ item.no }} · {{ formatCount(item.item_count) }} 行商品</span>
-                  <span class="option-extra">{{ item.status_text || orderStatusLabel(item.status) }}</span>
+                  <span>{{ item.no }} · {{ item.warehouse_name || '-' }} · {{ formatCount(candidateTotal(item)) }} 件待采购</span>
+                  <span class="option-extra">{{ item.items?.length || 0 }} 个缺货 SKU</span>
                 </el-option>
               </el-select>
             </el-form-item>
@@ -182,30 +189,29 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { createPurchaseOrder } from '@/api/purchase'
-import { getOrderList, getOrderDetail } from '@/api/order'
-import { getPartnerOptions, getSkuOptions } from '@/api/basic'
-import { orderStatusLabel } from '@/utils/constants'
+import { createPurchaseOrder, getPurchaseCandidates } from '@/api/purchase'
+import { getOrderDetail } from '@/api/order'
+import { getPartnerOptions, getSkuOptions, getWarehouseOptions } from '@/api/basic'
 import { formatAmount, formatCount } from '@/utils/format'
 
-/** 待备货订单：已接单 / 数量待确认 / 备货中（契约 10.1：备货缺货时采购） */
-const STOCK_NEEDED_STATUS = [20, 25, 30]
-
 const router = useRouter()
+const route = useRoute()
 
 const formRef = ref(null)
 const submitting = ref(false)
 const supplierOptions = ref([])
 const skuOptions = ref([])
-const salesOrderOptions = ref([])
+const warehouseOptions = ref([])
+const purchaseCandidates = ref([])
 /** 采购价上限：{ [sku_id]: expect_price }，取自所关联销售订单明细的预计成本 */
 const priceCapMap = ref({})
 
 const form = reactive({
   supplier_id: null,
   sales_order_id: null,
+  warehouse_id: null,
   expect_date: '',
   remark: '',
   // 明细行：sku_id 关联 SKU，count 采购数量，price 采购单价
@@ -213,7 +219,8 @@ const form = reactive({
 })
 
 const rules = {
-  supplier_id: [{ required: true, message: '请选择供应商', trigger: 'change' }]
+  supplier_id: [{ required: true, message: '请选择供应商', trigger: 'change' }],
+  warehouse_id: [{ required: true, message: '请选择目标入库仓库', trigger: 'change' }]
 }
 
 function createEmptyItem() {
@@ -276,7 +283,30 @@ async function loadPriceCaps(orderId) {
   }
 }
 
-watch(() => form.sales_order_id, loadPriceCaps)
+function candidateTotal(candidate) {
+  return (candidate?.items || []).reduce(
+    (total, item) => total + (Number(item.suggested_purchase) || 0),
+    0
+  )
+}
+
+/** 选择缺货订单后，按当前可用库存自动带入本次需要采购的 SKU 和数量。 */
+async function applyPurchaseCandidate(orderId) {
+  const candidate = purchaseCandidates.value.find((item) => item.id === orderId)
+  if (!candidate) {
+    priceCapMap.value = {}
+    return
+  }
+  form.warehouse_id = candidate.warehouse_id
+  form.items = candidate.items.map((item) => ({
+    sku_id: item.sku_id,
+    count: Number(item.suggested_purchase),
+    price: 0
+  }))
+  await loadPriceCaps(orderId)
+}
+
+watch(() => form.sales_order_id, applyPurchaseCandidate)
 
 /** 选择 SKU 后自动带出参考单价 */
 function handleSkuChange(row, skuId) {
@@ -344,6 +374,7 @@ async function handleSubmit() {
     await createPurchaseOrder({
       supplier_id: form.supplier_id,
       sales_order_id: form.sales_order_id || null,
+      warehouse_id: form.warehouse_id,
       expect_date: form.expect_date || null,
       remark: form.remark,
       items: form.items.map((row) => ({
@@ -359,17 +390,26 @@ async function handleSubmit() {
   }
 }
 
-/** 加载供应商、SKU 与待备货销售订单 */
+/** 加载供应商、SKU、仓库与库存不足订单候选。 */
 async function loadOptions() {
-  const [suppliers, skus] = await Promise.all([getPartnerOptions(2), getSkuOptions()])
+  const [suppliers, skus, warehouses, candidates] = await Promise.all([
+    getPartnerOptions(2),
+    getSkuOptions(),
+    getWarehouseOptions(),
+    getPurchaseCandidates()
+  ])
   supplierOptions.value = suppliers || []
   skuOptions.value = skus || []
+  warehouseOptions.value = warehouses || []
+  purchaseCandidates.value = candidates || []
 
-  // 待备货订单分三次拉取（已接单 / 数量待确认 / 备货中）后合并
-  const results = await Promise.all(
-    STOCK_NEEDED_STATUS.map((status) => getOrderList({ page: 1, page_size: 100, status }))
-  )
-  salesOrderOptions.value = results.flatMap((data) => data?.list || [])
+  const warehouseId = Number(route.query.warehouse_id)
+  const skuId = Number(route.query.sku_id)
+  const count = Number(route.query.count)
+  if (warehouseId > 0) form.warehouse_id = warehouseId
+  if (skuId > 0) {
+    form.items = [{ sku_id: skuId, count: Number.isInteger(count) && count > 0 ? count : 1, price: 0 }]
+  }
 }
 
 onMounted(loadOptions)

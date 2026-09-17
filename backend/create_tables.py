@@ -47,7 +47,7 @@ def ensure_database() -> None:
 
 
 def create_tables() -> None:
-    """按模型创建全部表，并补齐货号生成所需的旧库字段。"""
+    """按模型创建全部表，并补齐旧库所需的增量字段。"""
     engine = create_engine(settings.DATABASE_URL, echo=settings.DB_ECHO)
     Base.metadata.create_all(bind=engine)
     if engine.dialect.name == "mysql":
@@ -64,6 +64,18 @@ def create_tables() -> None:
             if "category_id" not in columns:
                 connection.execute(text("ALTER TABLE product_sku ADD COLUMN category_id BIGINT NULL"))
                 print("[升级] product_sku 已新增 category_id")
+            purchase_columns = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_order'"
+                    )
+                )
+            }
+            if "warehouse_id" not in purchase_columns:
+                connection.execute(text("ALTER TABLE purchase_order ADD COLUMN warehouse_id BIGINT NULL"))
+                print("[升级] purchase_order 已新增 warehouse_id")
     tables = ", ".join(sorted(Base.metadata.tables.keys()))
     print(f"[建表] 共 {len(Base.metadata.tables)} 张表：{tables}")
     engine.dispose()

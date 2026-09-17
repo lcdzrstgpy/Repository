@@ -63,6 +63,9 @@
           <el-table-column prop="sales_order_no" label="关联销售订单号" width="170">
             <template #default="{ row }">{{ row.sales_order_no || '-' }}</template>
           </el-table-column>
+          <el-table-column prop="warehouse_name" label="目标入库仓库" width="140">
+            <template #default="{ row }">{{ row.warehouse_name || '-' }}</template>
+          </el-table-column>
           <el-table-column prop="status" label="状态" width="100" align="center">
             <template #default="{ row }">
               <el-tag :type="purchaseStatusType(row.status)" size="small">
@@ -87,23 +90,14 @@
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row)">详情</el-button>
               <el-button link type="primary" @click="handlePrint(row)">打印</el-button>
-              <!-- 待审批：审批（approver/admin）+ 取消（warehouse/admin） -->
+              <!-- 仓管采购完成后，统一入库并增加目标仓库存。 -->
               <el-button
-                v-if="row.status === 10 && canApprove"
-                link
-                type="success"
-                @click="handleApprove(row)"
-              >
-                审批
-              </el-button>
-              <!-- 已审批：收货入库（warehouse/admin） -->
-              <el-button
-                v-if="row.status === 20 && canWarehouse"
+                v-if="(row.status === 10 || row.status === 20) && canWarehouse"
                 link
                 type="success"
                 @click="openReceive(row)"
               >
-                收货入库
+                采购完成
               </el-button>
               <!-- 待审批 / 已审批：取消（warehouse/admin） -->
               <el-button
@@ -206,7 +200,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getPurchaseList,
-  approvePurchaseOrder,
   cancelPurchaseOrder,
   getPurchaseInList
 } from '@/api/purchase'
@@ -225,9 +218,7 @@ import ReceiveDialog from './components/ReceiveDialog.vue'
 const router = useRouter()
 const userStore = useUserStore()
 
-/** 可审批角色（契约 11） */
-const canApprove = computed(() => ['approver', 'admin'].includes(userStore.role))
-/** 可创建 / 取消 / 收货入库角色（契约 11） */
+/** 可创建 / 取消 / 采购完成角色 */
 const canWarehouse = computed(() => ['warehouse', 'admin'].includes(userStore.role))
 
 /** 当前页签：order 采购单 / in 采购入库单 */
@@ -344,23 +335,6 @@ function openInDetail(row) {
 function openReceive(row) {
   currentOrderId.value = row.id
   receiveVisible.value = true
-}
-
-/** 审批通过：status 10 → 20 */
-async function handleApprove(row) {
-  try {
-    await ElMessageBox.confirm(`确认审批通过采购单「${row.no}」吗？`, '采购单审批', {
-      type: 'warning',
-      confirmButtonText: '确认通过',
-      cancelButtonText: '取消'
-    })
-  } catch (e) {
-    return // 用户取消
-  }
-
-  await approvePurchaseOrder(row.id)
-  ElMessage.success('审批通过，采购单状态变更为「已审批」')
-  load()
 }
 
 /** 取消采购单：status 10 / 20 → 90 */

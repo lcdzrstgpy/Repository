@@ -3,9 +3,6 @@
     <el-button :type="isActive('/warehouse/preparing') ? 'primary' : 'default'" @click="go('/warehouse/preparing')">
       备货订单
     </el-button>
-    <el-button :type="isActive('/warehouse/purchase-summary') ? 'primary' : 'default'" @click="go('/warehouse/purchase-summary')">
-      采购汇总
-    </el-button>
     <el-button :type="isActive('/warehouse/outs') ? 'primary' : 'default'" @click="go('/warehouse/outs')">
       出库记录
     </el-button>

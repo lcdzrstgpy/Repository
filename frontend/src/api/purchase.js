@@ -10,6 +10,11 @@ export function createPurchaseOrder(data) {
   return request.post('/api/purchase-orders', data)
 }
 
+/** 库存不足的备货订单及其自动计算出的采购明细。 */
+export function getPurchaseCandidates() {
+  return request.get('/api/purchase-orders/candidates')
+}
+
 /** 采购单列表，支持 ?page=&page_size=&status=&keyword= */
 export function getPurchaseList(params) {
   return request.get('/api/purchase-orders', { params })

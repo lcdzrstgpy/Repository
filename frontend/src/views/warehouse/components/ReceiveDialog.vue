@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="收货入库"
+    title="采购完成"
     width="820px"
     :destroy-on-close="true"
     @update:model-value="(val) => emit('update:modelValue', val)"
@@ -23,8 +23,9 @@
             <el-form-item label="入库仓库" prop="warehouse_id">
               <el-select
                 v-model="form.warehouse_id"
-                placeholder="请选择入库仓库"
+                placeholder="请选择目标入库仓库"
                 filterable
+                :disabled="Boolean(detail?.warehouse_id)"
                 style="width: 100%"
               >
                 <el-option
@@ -49,7 +50,7 @@
         </el-row>
       </el-form>
 
-      <div class="section-title">入库明细（默认填满剩余量，可修改为部分入库）</div>
+      <div class="section-title">采购完成明细（默认全部入库，可按实际到货量调整）</div>
       <el-table :data="rows" border size="small">
         <el-table-column type="index" label="序号" width="60" align="center" />
         <el-table-column prop="sku_code" label="货号" width="110" />
@@ -89,7 +90,7 @@
 
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">确认入库</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSubmit">确认采购完成并入库</el-button>
     </template>
   </el-dialog>
 </template>
@@ -135,6 +136,7 @@ async function loadDetail() {
   try {
     const data = await getPurchaseDetail(props.orderId)
     detail.value = data
+    form.warehouse_id = data?.warehouse_id || null
     rows.value = (data?.items || []).map((item) => {
       const count = Number(item.count) || 0
       const inCount = Number(item.in_count) || 0
@@ -199,7 +201,7 @@ async function handleSubmit() {
         .filter((row) => Number(row.receiveCount) > 0)
         .map((row) => ({ order_item_id: row.order_item_id, count: Number(row.receiveCount) }))
     })
-    ElMessage.success('收货入库成功，库存已增加')
+    ElMessage.success('采购完成，库存已增加')
     emit('update:modelValue', false)
     emit('success')
   } finally {

@@ -81,6 +81,11 @@
             <span class="shortage">{{ formatCount(row.shortage) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="110" fixed="right" align="center">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="createPurchase(row)">指定采购</el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="pagination-wrapper">
@@ -101,12 +106,14 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { getInventoryAlerts } from '@/api/inventory'
 import { getWarehouseOptions } from '@/api/basic'
 import { formatCount } from '@/utils/format'
 import WarehouseInventoryTabs from './components/WarehouseInventoryTabs.vue'
 
 const loading = ref(false)
+const router = useRouter()
 const list = ref([])
 const total = ref(0)
 const warehouseOptions = ref([])
@@ -153,6 +160,17 @@ function handleSizeChange(size) {
 function handlePageChange(page) {
   query.page = page
   load()
+}
+
+function createPurchase(row) {
+  router.push({
+    path: '/warehouse/purchase/create',
+    query: {
+      warehouse_id: row.warehouse_id,
+      sku_id: row.sku_id,
+      count: Math.max(1, Number(row.shortage) || 1)
+    }
+  })
 }
 
 onMounted(async () => {

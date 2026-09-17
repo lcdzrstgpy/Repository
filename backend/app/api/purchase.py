@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,8 @@ from app.core.database import get_db
 from app.core.response import BizException, NotFoundException, normalize_page, ok, paginate
 from app.core.security import require_roles
 from app.models.basic import Partner, Product, ProductSku, Warehouse
-from app.models.order import SalesOrder, SalesOrderItem
+from app.models.inventory import Inventory
+from app.models.order import ORDER_STATUS_PREPARING, SalesOrder, SalesOrderItem
 from app.models.purchase import (
     PURCHASE_IN_STATUS_DONE,
     PURCHASE_STATUS_APPROVED,
@@ -66,12 +67,13 @@ def _fmt_qty(value: Decimal) -> str:
 
 def _name_maps(
     db: Session, orders: list[PurchaseOrder]
-) -> tuple[dict, dict, dict]:
-    """批量取供应商名、用户名、销售订单号，避免逐行查询。"""
+) -> tuple[dict, dict, dict, dict]:
+    """批量取供应商、仓库、用户、销售订单名称，避免逐行查询。"""
     supplier_ids = {o.supplier_id for o in orders if o.supplier_id}
     user_ids = {o.created_by for o in orders if o.created_by}
     user_ids |= {o.approved_by for o in orders if o.approved_by}
     sales_order_ids = {o.sales_order_id for o in orders if o.sales_order_id}
+    warehouse_ids = {o.warehouse_id for o in orders if o.warehouse_id}
 
     suppliers = (
         {p.id: p.name for p in db.scalars(select(Partner).where(Partner.id.in_(supplier_ids)))}
@@ -94,19 +96,25 @@ def _name_maps(
         if sales_order_ids
         else {}
     )
-    return suppliers, users, sales_orders
+    warehouses = (
+        {w.id: w.name for w in db.scalars(select(Warehouse).where(Warehouse.id.in_(warehouse_ids)))}
+        if warehouse_ids
+        else {}
+    )
+    return suppliers, users, sales_orders, warehouses
 
 
 def build_purchase_order_briefs(db: Session, orders: list[PurchaseOrder]) -> list[dict]:
     """采购单列表元素批量序列化（契约 10.3 列表）。"""
     if not orders:
         return []
-    suppliers, users, sales_orders = _name_maps(db, orders)
+    suppliers, users, sales_orders, warehouses = _name_maps(db, orders)
     return [
         purchase_order_brief(
             order,
             supplier_name=suppliers.get(order.supplier_id),
             sales_order_no=sales_orders.get(order.sales_order_id),
+            warehouse_name=warehouses.get(order.warehouse_id),
             created_by_name=users.get(order.created_by),
             approved_by_name=users.get(order.approved_by),
         )
@@ -116,7 +124,7 @@ def build_purchase_order_briefs(db: Session, orders: list[PurchaseOrder]) -> lis
 
 def build_purchase_order_detail(db: Session, order: PurchaseOrder) -> dict:
     """采购单详情序列化（契约 10.3 详情，含明细）。"""
-    suppliers, users, sales_orders = _name_maps(db, [order])
+    suppliers, users, sales_orders, warehouses = _name_maps(db, [order])
     items = list(
         db.scalars(
             select(PurchaseOrderItem)
@@ -137,6 +145,7 @@ def build_purchase_order_detail(db: Session, order: PurchaseOrder) -> dict:
         order,
         supplier_name=suppliers.get(order.supplier_id),
         sales_order_no=sales_orders.get(order.sales_order_id),
+        warehouse_name=warehouses.get(order.warehouse_id),
         created_by_name=users.get(order.created_by),
         approved_by_name=users.get(order.approved_by),
         items=item_dicts,
@@ -227,6 +236,87 @@ def check_purchase_price_limit(
             )
 
 
+def build_purchase_candidates(db: Session) -> list[dict]:
+    """列出确有缺货的备货订单，并按当前可用库存计算每个 SKU 的补货量。"""
+    orders = list(
+        db.scalars(
+            select(SalesOrder)
+            .where(
+                SalesOrder.status == ORDER_STATUS_PREPARING,
+                SalesOrder.warehouse_id.is_not(None),
+            )
+            .order_by(SalesOrder.created_at.asc(), SalesOrder.id.asc())
+        )
+    )
+    keys = {
+        (order.warehouse_id, item.sku_id)
+        for order in orders
+        for item in order.items
+        if item.sku_id is not None
+    }
+    inventories = (
+        list(
+            db.scalars(
+                select(Inventory).where(tuple_(Inventory.warehouse_id, Inventory.sku_id).in_(keys))
+            )
+        )
+        if keys
+        else []
+    )
+    available = {
+        (row.warehouse_id, row.sku_id): max(
+            Decimal("0"), Decimal(row.quantity or 0) - Decimal(row.reserved_quantity or 0)
+        )
+        for row in inventories
+    }
+    sku_ids = {item.sku_id for order in orders for item in order.items if item.sku_id is not None}
+    skus, products = _load_sku_maps(db, sku_ids)
+    warehouses = {
+        row.id: row.name
+        for row in db.scalars(select(Warehouse).where(Warehouse.id.in_({order.warehouse_id for order in orders})))
+    } if orders else {}
+
+    candidates: list[dict] = []
+    for order in orders:
+        needs: dict[int, Decimal] = {}
+        for item in order.items:
+            if item.sku_id is None:
+                continue
+            remaining = max(Decimal("0"), Decimal(item.count or 0) - Decimal(item.out_count or 0))
+            needs[item.sku_id] = needs.get(item.sku_id, Decimal("0")) + remaining
+
+        items = []
+        for sku_id, need_count in needs.items():
+            current_available = available.get((order.warehouse_id, sku_id), Decimal("0"))
+            suggested_purchase = max(Decimal("0"), need_count - current_available)
+            if suggested_purchase <= 0:
+                continue
+            sku = skus.get(sku_id)
+            product = products.get(sku.product_id) if sku else None
+            items.append(
+                {
+                    "sku_id": sku_id,
+                    "sku_code": sku.sku_code if sku else None,
+                    "product_name": product.name if product else None,
+                    "spec": sku.spec if sku else None,
+                    "need_count": float(need_count),
+                    "available_quantity": float(current_available),
+                    "suggested_purchase": float(suggested_purchase),
+                }
+            )
+        if items:
+            candidates.append(
+                {
+                    "id": order.id,
+                    "no": order.no,
+                    "warehouse_id": order.warehouse_id,
+                    "warehouse_name": warehouses.get(order.warehouse_id),
+                    "items": items,
+                }
+            )
+    return candidates
+
+
 # ---------------------------------------------------------------- 采购单接口
 @router.post("", summary="创建采购单")
 def create_purchase_order(
@@ -248,6 +338,12 @@ def create_purchase_order(
     # 关联销售订单（可选）必须存在
     if payload.sales_order_id is not None and db.get(SalesOrder, payload.sales_order_id) is None:
         raise BizException(f"关联销售订单(id={payload.sales_order_id})不存在")
+    if payload.warehouse_id is not None:
+        warehouse = db.get(Warehouse, payload.warehouse_id)
+        if warehouse is None:
+            raise BizException("目标入库仓库不存在")
+        if warehouse.status != 1:
+            raise BizException(f"仓库「{warehouse.name}」已停用，无法创建采购单")
 
     # 校验 SKU
     sku_ids = [item.sku_id for item in payload.items]
@@ -279,6 +375,7 @@ def create_purchase_order(
                 no=generate_purchase_order_no(db),
                 supplier_id=payload.supplier_id,
                 sales_order_id=payload.sales_order_id,
+                warehouse_id=payload.warehouse_id,
                 status=PURCHASE_STATUS_PENDING,
                 total_count=total_count,
                 total_price=total_price,
@@ -311,6 +408,15 @@ def create_purchase_order(
 
     db.refresh(order)
     return ok(build_purchase_order_detail(db, order), msg="采购单创建成功")
+
+
+@router.get("/candidates", summary="缺货订单采购候选")
+def list_purchase_candidates(
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+):
+    """返回库存不足的备货订单及自动计算出的采购明细。"""
+    return ok(build_purchase_candidates(db))
 
 
 @router.get("", summary="采购单列表")
@@ -439,15 +545,17 @@ def receive_purchase_order(
     """
     order = get_purchase_order_or_404(db, order_id)
 
-    # 步骤 1：仅「已审批」可收货入库
-    if order.status != PURCHASE_STATUS_APPROVED:
+    # 仓储采购不再走独立审批：待采购或历史已审批单都可直接完成并入库。
+    if order.status not in (PURCHASE_STATUS_PENDING, PURCHASE_STATUS_APPROVED):
         raise BizException(
-            f"采购单当前状态为「{purchase_status_text(order.status)}」，无法执行收货入库操作"
+            f"采购单当前状态为「{purchase_status_text(order.status)}」，无法执行采购完成操作"
         )
 
     warehouse = db.get(Warehouse, payload.warehouse_id)
     if warehouse is None:
         raise BizException("入库仓库不存在")
+    if order.warehouse_id is not None and order.warehouse_id != warehouse.id:
+        raise BizException("该采购单必须入库到创建时指定的目标仓库")
 
     # 步骤 2：明细必须属于该采购单，且本次入库量 > 0 且不超过剩余可入库量
     order_items = {
@@ -552,7 +660,7 @@ def receive_purchase_order(
         raise BizException("入库单号生成冲突，请稍后重试")
 
     db.refresh(order)
-    return ok(build_purchase_order_detail(db, order), msg=f"收货入库成功，入库单号 {in_no}")
+    return ok(build_purchase_order_detail(db, order), msg=f"采购完成，已入库：{in_no}")
 
 
 # ---------------------------------------------------------------- 入库单接口
