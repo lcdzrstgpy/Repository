@@ -20,12 +20,13 @@ export const warehouseApi = createCrudApi('warehouses')
 export const productApi = createCrudApi('products')
 /** SKU */
 export const skuApi = createCrudApi('skus')
-/** 往来单位 */
-export const partnerApi = createCrudApi('partners')
 /** 用户 */
 export const userApi = createCrudApi('users')
 
-/** 往来单位下拉选项，type 可选（1 客户 / 2 供应商 / 3 两者） */
+/**
+ * 采购单供应商下拉选项，type 可选（1 客户 / 2 供应商 / 3 两者）。
+ * 管理端已不提供往来单位管理页，但采购流程仍依赖供应商基础数据。
+ */
 export function getPartnerOptions(type) {
   return request.get('/api/partners/options', { params: type ? { type } : {} })
 }

@@ -220,18 +220,6 @@ export const routes = [
         }
       },
       {
-        path: 'basic/partners',
-        name: 'BasicPartner',
-        component: () => import('@/views/basic/PartnerManage.vue'),
-        meta: {
-          title: '往来单位',
-          icon: 'User',
-          roles: ['admin'],
-          menu: true,
-          group: '基础数据'
-        }
-      },
-      {
         path: 'basic/users',
         name: 'BasicUser',
         component: () => import('@/views/basic/UserManage.vue'),

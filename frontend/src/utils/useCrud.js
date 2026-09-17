@@ -3,7 +3,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 /**
  * 基础数据 CRUD 通用逻辑
- * 五组基础数据页面（仓库 / 商品 / SKU / 往来单位 / 用户）结构一致，抽出来复用
+ * 四组基础数据页面（仓库 / 商品 / SKU / 用户）结构一致，抽出来复用
  *
  * @param {Object} options
  * @param {Object} options.api          由 createCrudApi 生成的接口对象
