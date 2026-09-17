@@ -39,3 +39,7 @@ export function getSkuOptions() {
 export function getWarehouseOptions() {
   return request.get('/api/warehouses/options')
 }
+
+export function queryItems(keyword) {
+  return request.get('/api/item-query', { params: { keyword } })
+}

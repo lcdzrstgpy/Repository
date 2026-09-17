@@ -16,7 +16,7 @@
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
-            placeholder="订单单号 / 客户名称"
+            placeholder="订单单号 / 物流单号"
             clearable
             style="width: 220px"
             @keyup.enter="handleSearch"
@@ -52,7 +52,13 @@
 
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="no" label="订单单号" width="170" />
-        <el-table-column prop="customer_name" label="客户名称" min-width="150" show-overflow-tooltip />
+        <el-table-column label="图片" width="86" align="center">
+          <template #default="{ row }"><el-image v-if="row.image_url" :src="row.image_url" :preview-src-list="[row.image_url]" fit="cover" style="width:44px;height:44px;border-radius:4px" /><span v-else>-</span></template>
+        </el-table-column>
+        <el-table-column prop="product_name" label="商品名" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="item_no" label="货号" width="150" />
+        <el-table-column prop="remark" label="备注" min-width="160" show-overflow-tooltip><template #default="{ row }">{{ row.remark || '-' }}</template></el-table-column>
+        <el-table-column prop="estimated_cost" label="预计成本" width="120" align="right"><template #default="{ row }">￥{{ formatAmount(row.estimated_cost) }}</template></el-table-column>
         <el-table-column prop="status" label="状态" width="100" align="center">
           <template #default="{ row }">
             <el-tag :type="orderStatusType(row.status)" size="small">
@@ -60,16 +66,6 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="total_count" label="总数量" width="100" align="right">
-          <template #default="{ row }">{{ formatCount(row.total_count) }}</template>
-        </el-table-column>
-        <el-table-column prop="total_price" label="总金额" width="120" align="right">
-          <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
-        </el-table-column>
-        <el-table-column prop="express_no" label="物流单号" width="150">
-          <template #default="{ row }">{{ row.express_no || '-' }}</template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="下单时间" width="170" />
         <el-table-column label="操作" width="230" fixed="right" align="center">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>

@@ -19,16 +19,19 @@ from app.core.response import (
     paginate,
 )
 from app.core.security import require_roles
-from app.models.basic import Partner, Product, ProductSku, Warehouse
+from app.models.basic import Partner, Product, ProductCategory, ProductSku, Warehouse
 from app.models.order import (
     ORDER_STATUS_CLAIMED,
     ORDER_STATUS_PENDING,
     ORDER_STATUS_PREPARING,
+    ORDER_STATUS_PARTIALLY_SHIPPED,
     SalesOrder,
     SalesOrderItem,
     ensure_transition,
 )
 from app.models.user import SysUser
+from app.models.stock import SalesOut, SalesOutItem
+from app.models.inventory import InventoryHistory
 from app.schemas.order import SalesOrderCancelIn, SalesOrderCreateIn
 from app.schemas.serializers import order_brief, order_detail, order_item_out
 from app.services.inventory_service import release_inventory
@@ -101,15 +104,14 @@ def build_order_briefs(db: Session, orders: list[SalesOrder]) -> list[dict]:
     if not orders:
         return []
     customers, users, _ = _name_maps(db, orders)
-    return [
-        order_brief(
-            order,
-            customer_name=customers.get(order.customer_id),
-            created_by_name=users.get(order.created_by),
-            claimed_by_name=users.get(order.claimed_by),
-        )
-        for order in orders
-    ]
+    result = []
+    for order in orders:
+        row = order_brief(order, customer_name=customers.get(order.customer_id), created_by_name=users.get(order.created_by), claimed_by_name=users.get(order.claimed_by))
+        detail = build_order_detail(db, order)
+        item = detail["items"][0] if detail["items"] else {}
+        row.update({"product_name": item.get("product_name"), "item_no": item.get("item_no"), "image_url": item.get("image_url"), "remark": order.remark, "estimated_cost": float(order.total_price or 0)})
+        result.append(row)
+    return result
 
 
 def build_order_detail(db: Session, order: SalesOrder) -> dict:
@@ -136,7 +138,23 @@ def build_order_detail(db: Session, order: SalesOrder) -> dict:
         )
         for item in items
     ]
-    return order_detail(
+    shipments = []
+    for out in db.scalars(select(SalesOut).where(SalesOut.order_id == order.id).order_by(SalesOut.id.asc())).all():
+        history = db.scalars(
+            select(InventoryHistory)
+            .where(InventoryHistory.order_no == out.no)
+            .order_by(InventoryHistory.id.desc())
+        ).first()
+        shipments.append({
+            "out_no": out.no,
+            "warehouse_name": warehouses.get(out.warehouse_id),
+            "express_no": out.express_no,
+            "shipped_at": out.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "count": float(out.total_count or 0),
+            "stock_after": float(history.after_quantity) if history else None,
+            "status": int(out.status),
+        })
+    data = order_detail(
         order,
         customer_name=customers.get(order.customer_id),
         created_by_name=users.get(order.created_by),
@@ -144,6 +162,8 @@ def build_order_detail(db: Session, order: SalesOrder) -> dict:
         warehouse_name=warehouses.get(order.warehouse_id),
         items=item_dicts,
     )
+    data["shipments"] = shipments
+    return data
 
 
 # ---------------------------------------------------------------- 库存预留
@@ -181,6 +201,49 @@ def generate_order_no(db: Session) -> str:
     return f"{prefix}{seq:04d}"
 
 
+def _category_segment(level: int, sequence: int) -> str:
+    return f"{'ABC'[level - 1]}{sequence:03d}"
+
+
+def resolve_new_item(db: Session, payload) -> ProductSku:
+    """创建或复用运营填写的三级分类商品，并生成三段货号。"""
+    parent_id = None
+    categories = []
+    for level, raw_name in enumerate(payload.categories, start=1):
+        name = raw_name.strip()
+        if not name:
+            raise BizException("三级分类不能为空")
+        stmt = select(ProductCategory).where(ProductCategory.level == level, ProductCategory.name == name)
+        stmt = stmt.where(ProductCategory.parent_id.is_(None)) if parent_id is None else stmt.where(ProductCategory.parent_id == parent_id)
+        category = db.scalars(stmt).first()
+        if category is None:
+            sibling_stmt = select(func.count()).select_from(ProductCategory).where(ProductCategory.level == level)
+            sibling_stmt = sibling_stmt.where(ProductCategory.parent_id.is_(None)) if parent_id is None else sibling_stmt.where(ProductCategory.parent_id == parent_id)
+            category = ProductCategory(parent_id=parent_id, level=level, name=name, code_segment=_category_segment(level, int(db.scalar(sibling_stmt) or 0) + 1))
+            db.add(category)
+            db.flush()
+        categories.append(category)
+        parent_id = category.id
+
+    existing = db.scalars(
+        select(ProductSku).join(Product, Product.id == ProductSku.product_id).where(
+            ProductSku.category_id == categories[-1].id,
+            Product.name == payload.product_name.strip(),
+            ProductSku.spec == (payload.spec or None),
+        )
+    ).first()
+    if existing:
+        return existing
+    product = Product(code=f"P{datetime.now().strftime('%Y%m%d%H%M%S%f')}", name=payload.product_name.strip(), status=1)
+    db.add(product)
+    db.flush()
+    item_no = "-".join(category.code_segment for category in categories)
+    sku = ProductSku(product_id=product.id, category_id=categories[-1].id, sku_code=item_no, spec=payload.spec, image_url=payload.image_url, remark=payload.item_remark, price=Decimal("0"), min_stock=Decimal("0"), status=1)
+    db.add(sku)
+    db.flush()
+    return sku
+
+
 # ---------------------------------------------------------------- 接口
 
 
@@ -190,61 +253,34 @@ def create_order(
     db: Session = Depends(get_db),
     current_user: SysUser = Depends(require_roles("operator", "admin")),
 ):
-    """运营下单。created_by 取当前用户，status 固定 10，总额由后端汇总。"""
-    # 校验客户
-    customer = db.get(Partner, payload.customer_id)
-    if customer is None:
-        raise BizException("客户不存在")
-    if customer.type not in (1, 3):
-        raise BizException(f"往来单位「{customer.name}」不是客户，不能用于下单")
-
-    # 校验 SKU
-    sku_ids = [item.sku_id for item in payload.items]
-    sku_map = {
-        s.id: s for s in db.scalars(select(ProductSku).where(ProductSku.id.in_(sku_ids)))
-    }
-    for sku_id in sku_ids:
-        sku = sku_map.get(sku_id)
-        if sku is None:
-            raise BizException(f"SKU(id={sku_id})不存在")
-        if sku.status != 1:
-            raise BizException(f"SKU「{sku.sku_code}」已停用，无法下单")
-
-    # 后端汇总总额，不信任前端传值
-    total_count = sum((item.count for item in payload.items), Decimal("0"))
-    total_price = sum(
-        ((item.count * item.price).quantize(CENT, rounding=ROUND_HALF_UP) for item in payload.items),
-        Decimal("0"),
+    """运营下单：一张店小秘订单只对应一个货号。"""
+    if bool(payload.sku_code) == bool(payload.new_item):
+        raise BizException("请选择已有货号，或填写无货号商品资料（二选一）")
+    sku = (
+        db.scalars(select(ProductSku).where(ProductSku.sku_code == payload.sku_code.strip())).first()
+        if payload.sku_code else resolve_new_item(db, payload.new_item)
     )
+    if sku is None or sku.status != 1:
+        raise BizException("货号不存在或已停用")
 
     # sales_order.no 有唯一索引：并发下可能撞号，捕获后重试
     order: SalesOrder | None = None
     for _ in range(5):
         try:
             order = SalesOrder(
-                no=generate_order_no(db),
-                customer_id=payload.customer_id,
+                no=payload.no.strip(),
+                # 兼容已升级数据库中的旧字段；对外只使用 no。
+                external_no=payload.no.strip(),
                 status=ORDER_STATUS_PENDING,
                 remark=payload.remark,
-                total_count=total_count,
-                total_price=total_price,
+                total_count=payload.count,
+                total_price=payload.estimated_cost,
                 created_by=current_user.id,
             )
             db.add(order)
             db.flush()
-            for item in payload.items:
-                db.add(
-                    SalesOrderItem(
-                        order_id=order.id,
-                        sku_id=item.sku_id,
-                        count=item.count,
-                        out_count=Decimal("0"),
-                        price=item.price,
-                        total_price=(item.count * item.price).quantize(
-                            CENT, rounding=ROUND_HALF_UP
-                        ),
-                    )
-                )
+            unit_cost = (payload.estimated_cost / payload.count).quantize(CENT, rounding=ROUND_HALF_UP) if payload.count else Decimal("0")
+            db.add(SalesOrderItem(order_id=order.id, sku_id=sku.id, count=payload.count, out_count=Decimal("0"), price=unit_cost, total_price=payload.estimated_cost))
             db.commit()
             break
         except IntegrityError:
@@ -290,6 +326,7 @@ def list_orders(
             SalesOrder.no.like(pattern),
             SalesOrder.express_no.like(pattern),
             Partner.name.like(pattern),
+            SalesOrder.external_no.like(pattern),
         )
         stmt = stmt.where(condition)
         count_stmt = count_stmt.where(condition)
@@ -339,7 +376,7 @@ def cancel_order(
 
     # 这里必须读 order.status（此时还没被改成 target），判断的是取消前的状态
     if (
-        order.status in (ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING)
+        order.status in (ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING, ORDER_STATUS_PARTIALLY_SHIPPED)
         and order.warehouse_id is not None
     ):
         warnings = release_inventory(

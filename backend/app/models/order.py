@@ -13,6 +13,7 @@ from app.core.database import Base, TimestampMixin
 ORDER_STATUS_PENDING = 10  # 待接单
 ORDER_STATUS_CLAIMED = 20  # 已接单
 ORDER_STATUS_PREPARING = 30  # 备货中
+ORDER_STATUS_PARTIALLY_SHIPPED = 35  # 部分发货
 ORDER_STATUS_SHIPPED = 40  # 已发货
 ORDER_STATUS_FINISHED = 50  # 已完成
 ORDER_STATUS_CANCELLED = 90  # 已取消
@@ -22,6 +23,7 @@ ORDER_STATUS_TEXT: dict[int, str] = {
     ORDER_STATUS_PENDING: "待接单",
     ORDER_STATUS_CLAIMED: "已接单",
     ORDER_STATUS_PREPARING: "备货中",
+    ORDER_STATUS_PARTIALLY_SHIPPED: "部分发货",
     ORDER_STATUS_SHIPPED: "已发货",
     ORDER_STATUS_FINISHED: "已完成",
     ORDER_STATUS_CANCELLED: "已取消",
@@ -36,10 +38,10 @@ AUDIT_STATUS_AUDITED = 1  # 已审批
 ORDER_TRANSITIONS: dict[str, tuple[set[int], int]] = {
     "接单": ({ORDER_STATUS_PENDING}, ORDER_STATUS_CLAIMED),
     "备货": ({ORDER_STATUS_CLAIMED}, ORDER_STATUS_PREPARING),
-    "发货": ({ORDER_STATUS_PREPARING}, ORDER_STATUS_SHIPPED),
+    "发货": ({ORDER_STATUS_PREPARING, ORDER_STATUS_PARTIALLY_SHIPPED}, ORDER_STATUS_SHIPPED),
     "确认完成": ({ORDER_STATUS_SHIPPED}, ORDER_STATUS_FINISHED),
     "取消": (
-        {ORDER_STATUS_PENDING, ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING},
+        {ORDER_STATUS_PENDING, ORDER_STATUS_CLAIMED, ORDER_STATUS_PREPARING, ORDER_STATUS_PARTIALLY_SHIPPED},
         ORDER_STATUS_CANCELLED,
     ),
 }
@@ -78,8 +80,9 @@ class SalesOrder(Base, TimestampMixin):
     no: Mapped[str] = mapped_column(
         String(32), unique=True, nullable=False, comment="单号 SO+yyyyMMdd+4位流水"
     )
-    customer_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("partner.id"), nullable=False, comment="客户 partner.id"
+    external_no: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, comment="店小秘订单号")
+    customer_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("partner.id"), nullable=True, comment="客户 partner.id"
     )
     status: Mapped[int] = mapped_column(
         TINYINT, nullable=False, default=ORDER_STATUS_PENDING, comment="见契约 3.2"

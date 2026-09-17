@@ -65,6 +65,9 @@
             clearable
           />
         </el-form-item>
+        <el-form-item label="本次发货数量" prop="count">
+          <el-input-number v-model="shipForm.count" :min="0.01" :precision="2" style="width: 100%" />
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -84,6 +87,7 @@ import { formatAmount, formatCount } from '@/utils/format'
 
 /** 备货中状态值，来自契约 3.2 */
 const PREPARING_STATUS = 30
+const PARTIALLY_SHIPPED_STATUS = 35
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -98,25 +102,26 @@ const query = reactive({
 const shipVisible = ref(false)
 const shipFormRef = ref(null)
 const currentRow = ref(null)
-const shipForm = reactive({ express_no: '' })
+const shipForm = reactive({ express_no: '', count: 1 })
 
 const shipRules = {
   express_no: [
     { required: true, message: '请输入物流单号', trigger: 'blur' },
     { min: 4, max: 64, message: '物流单号长度为 4 到 64 个字符', trigger: 'blur' }
-  ]
+  ],
+  count: [{ required: true, message: '请输入本次发货数量', trigger: 'change' }]
 }
 
 async function load() {
   loading.value = true
   try {
-    const data = await getOrderList({
-      page: query.page,
-      page_size: query.page_size,
-      status: PREPARING_STATUS
-    })
-    list.value = data?.list || []
-    total.value = data?.total || 0
+    const [preparing, partial] = await Promise.all([
+      getOrderList({ page: 1, page_size: 200, status: PREPARING_STATUS }),
+      getOrderList({ page: 1, page_size: 200, status: PARTIALLY_SHIPPED_STATUS })
+    ])
+    const all = [...(preparing?.list || []), ...(partial?.list || [])]
+    total.value = all.length
+    list.value = all.slice((query.page - 1) * query.page_size, query.page * query.page_size)
   } finally {
     loading.value = false
   }
@@ -136,6 +141,7 @@ function handlePageChange(page) {
 function openShip(row) {
   currentRow.value = row
   shipForm.express_no = ''
+  shipForm.count = Number(row.total_count) || 1
   shipVisible.value = true
 }
 
@@ -149,7 +155,7 @@ async function handleShip() {
 
   submitting.value = true
   try {
-    await shipOrder(currentRow.value.id, shipForm.express_no.trim())
+    await shipOrder(currentRow.value.id, shipForm.express_no.trim(), Number(shipForm.count))
     ElMessage.success('发货成功，状态已回传运营端')
     shipVisible.value = false
     load()

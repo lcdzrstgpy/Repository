@@ -21,6 +21,6 @@ export function prepareOrder(id) {
 }
 
 /** 发货（仅 status 30，成功后 status = 40，回传点） */
-export function shipOrder(id, expressNo) {
-  return request.post(`/api/warehouse/orders/${id}/ship`, { express_no: expressNo })
+export function shipOrder(id, expressNo, count) {
+  return request.post(`/api/warehouse/orders/${id}/ship`, { express_no: expressNo, count })
 }

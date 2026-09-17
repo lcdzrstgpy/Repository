@@ -25,6 +25,7 @@ export const ORDER_STATUS = {
   10: { label: '待接单', type: 'info' },
   20: { label: '已接单', type: 'primary' },
   30: { label: '备货中', type: 'warning' },
+  35: { label: '部分发货', type: 'warning' },
   40: { label: '已发货', type: 'success' },
   50: { label: '已完成', type: 'success' },
   90: { label: '已取消', type: 'danger' }
@@ -36,7 +37,7 @@ export const ORDER_STATUS_OPTIONS = Object.entries(ORDER_STATUS).map(([value, it
 }))
 
 /** 可取消的状态：10 / 20 / 30（契约 6） */
-export const CANCELABLE_STATUS = [10, 20, 30]
+export const CANCELABLE_STATUS = [10, 20, 30, 35]
 
 /** 审批状态（契约 3.3） */
 export const AUDIT_STATUS_MAP = {

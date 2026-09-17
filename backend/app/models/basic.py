@@ -41,6 +41,18 @@ class Product(Base, TimestampMixin):
     )
 
 
+class ProductCategory(Base, TimestampMixin):
+    """货号三级分类。code_segment 为本层展示编码，如 A001。"""
+
+    __tablename__ = "product_category"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    level: Mapped[int] = mapped_column(TINYINT, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    code_segment: Mapped[str] = mapped_column(String(8), nullable=False)
+
+
 class ProductSku(Base, TimestampMixin):
     """商品 SKU（契约 4.4）。"""
 
@@ -50,8 +62,11 @@ class ProductSku(Base, TimestampMixin):
     product_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("product.id"), nullable=False, comment="关联 product"
     )
+    category_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     sku_code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, comment="SKU 编码")
     spec: Mapped[str | None] = mapped_column(String(200), nullable=True, comment="规格")
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="SKU 图片地址")
+    remark: Mapped[str | None] = mapped_column(String(500), nullable=True, comment="SKU 备注")
     price: Mapped[Decimal] = mapped_column(
         Numeric(14, 2), nullable=False, default=Decimal("0.00"), comment="售价"
     )

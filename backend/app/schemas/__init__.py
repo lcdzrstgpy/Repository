@@ -13,7 +13,7 @@ from app.schemas.basic import (
     WarehouseCreate,
     WarehouseUpdate,
 )
-from app.schemas.order import OrderItemIn, SalesOrderCancelIn, SalesOrderCreateIn, ShipIn, ClaimIn
+from app.schemas.order import NewItemIn, SalesOrderCancelIn, SalesOrderCreateIn, ShipIn, ClaimIn
 
 __all__ = [
     "LoginRequest",
@@ -30,7 +30,7 @@ __all__ = [
     "UserCreate",
     "UserUpdate",
     "SalesOrderCreateIn",
-    "OrderItemIn",
+    "NewItemIn",
     "SalesOrderCancelIn",
     "ClaimIn",
     "ShipIn",

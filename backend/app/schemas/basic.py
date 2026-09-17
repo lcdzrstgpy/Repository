@@ -62,6 +62,8 @@ class SkuCreate(BaseModel):
     product_id: int = Field(..., gt=0, description="关联商品 id")
     sku_code: str = Field(..., min_length=1, max_length=64, description="SKU 编码")
     spec: str | None = Field(None, max_length=200, description="规格")
+    image_url: str | None = Field(None, max_length=500, description="SKU 图片地址")
+    remark: str | None = Field(None, max_length=500, description="SKU 备注")
     price: Decimal = Field(Decimal("0.00"), ge=0, description="售价")
     min_stock: Decimal = Field(Decimal("0.00"), ge=0, description="安全库存下限，0 表示不预警")
     status: StatusField = Field(1, description="1 启用 / 0 停用")
@@ -73,6 +75,8 @@ class SkuUpdate(BaseModel):
     product_id: int | None = Field(None, gt=0)
     sku_code: str | None = Field(None, min_length=1, max_length=64)
     spec: str | None = Field(None, max_length=200)
+    image_url: str | None = Field(None, max_length=500)
+    remark: str | None = Field(None, max_length=500)
     price: Decimal | None = Field(None, ge=0)
     min_stock: Decimal | None = Field(None, ge=0)
     status: StatusField | None = None

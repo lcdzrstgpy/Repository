@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.response import BizException, NotFoundException, normalize_page, ok, paginate
 from app.core.security import hash_password, require_roles
+from app.models.inventory import Inventory
 from app.models.basic import Partner, Product, ProductSku, Warehouse
 from app.models.user import SysUser
 from app.schemas import basic as bs
@@ -281,6 +282,8 @@ def _sku_options(db: Session, params: dict) -> list[dict]:
             "sku_code": sku.sku_code,
             "name": product.name,
             "spec": sku.spec,
+            "image_url": sku.image_url,
+            "remark": sku.remark,
             "price": float(sku.price or 0),
             "min_stock": float(sku.min_stock or 0),
         }
@@ -301,6 +304,32 @@ sku_router = build_crud_router(
     validate=_validate_sku,
     options=_sku_options,
 )
+
+
+item_router = APIRouter(prefix="/api/item-query", tags=["运营侧·货号查询"])
+
+
+@item_router.get("")
+def item_query(
+    keyword: str | None = Query(None),
+    db: Session = Depends(get_db),
+    _current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
+):
+    """按货号或商品资料查询，只返回只读库存。"""
+    stmt = select(ProductSku, Product).join(Product, Product.id == ProductSku.product_id)
+    kw = (keyword or "").strip()
+    if kw:
+        pattern = f"%{kw}%"
+        stmt = stmt.where(or_(ProductSku.sku_code.like(pattern), Product.name.like(pattern), ProductSku.spec.like(pattern), ProductSku.remark.like(pattern)))
+    rows = db.execute(stmt.where(ProductSku.status == 1).order_by(ProductSku.id.desc())).all()
+    sku_ids = [sku.id for sku, _ in rows]
+    inventories = db.execute(
+        select(Inventory, Warehouse).join(Warehouse, Warehouse.id == Inventory.warehouse_id).where(Inventory.sku_id.in_(sku_ids))
+    ).all() if sku_ids else []
+    stock_map: dict[int, list[dict]] = {}
+    for inv, warehouse in inventories:
+        stock_map.setdefault(inv.sku_id, []).append({"warehouse_id": warehouse.id, "warehouse_name": warehouse.name, "quantity": float(inv.quantity or 0), "reserved_quantity": float(inv.reserved_quantity or 0), "available_quantity": float((inv.quantity or 0) - (inv.reserved_quantity or 0))})
+    return ok([{"id": sku.id, "item_no": sku.sku_code, "sku_code": sku.sku_code, "product_name": product.name, "spec": sku.spec, "image_url": sku.image_url, "remark": sku.remark, "stocks": stock_map.get(sku.id, [])} for sku, product in rows])
 
 
 def _partner_options(db: Session, params: dict) -> list[dict]:
@@ -370,6 +399,7 @@ def register_basic_routers(app) -> None:
         warehouse_router,
         product_router,
         sku_router,
+        item_router,
         partner_router,
         user_router,
     ):

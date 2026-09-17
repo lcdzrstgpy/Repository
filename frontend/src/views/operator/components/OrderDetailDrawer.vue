@@ -57,9 +57,18 @@
         <div class="section-title">订单明细</div>
         <el-table :data="detail.items || []" border size="small" show-summary :summary-method="summaryMethod">
           <el-table-column type="index" label="序号" width="60" align="center" />
-          <el-table-column prop="sku_code" label="SKU 编码" width="110" />
+          <el-table-column label="SKU 图片" width="92" align="center">
+            <template #default="{ row }">
+              <el-image v-if="row.image_url" :src="row.image_url" :preview-src-list="[row.image_url]" fit="cover" class="sku-image" />
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sku_code" label="货号" width="130" />
           <el-table-column prop="product_name" label="商品名称" min-width="130" show-overflow-tooltip />
           <el-table-column prop="spec" label="规格" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.remark || '-' }}</template>
+          </el-table-column>
           <el-table-column prop="count" label="数量" width="90" align="right">
             <template #default="{ row }">{{ formatCount(row.count) }}</template>
           </el-table-column>
@@ -72,6 +81,15 @@
           <el-table-column prop="total_price" label="小计" width="110" align="right">
             <template #default="{ row }">￥{{ formatAmount(row.total_price) }}</template>
           </el-table-column>
+        </el-table>
+        <div class="section-title">发货回传</div>
+        <el-table :data="detail.shipments || []" border size="small">
+          <el-table-column prop="out_no" label="出库单号" min-width="160" />
+          <el-table-column prop="warehouse_name" label="发货仓库" min-width="120" />
+          <el-table-column prop="count" label="发货数量" width="110" />
+          <el-table-column prop="stock_after" label="发货后库存" width="120"><template #default="{ row }">{{ row.stock_after ?? '-' }}</template></el-table-column>
+          <el-table-column prop="express_no" label="物流单号" min-width="160" />
+          <el-table-column prop="shipped_at" label="发货时间" min-width="170" />
         </el-table>
       </template>
 
@@ -162,5 +180,11 @@ watch(
 
 .cancel-alert {
   margin-top: 16px;
+}
+
+.sku-image {
+  width: 44px;
+  height: 44px;
+  border-radius: 4px;
 }
 </style>

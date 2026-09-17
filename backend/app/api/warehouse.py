@@ -6,6 +6,7 @@
 
 import logging
 from datetime import datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -22,7 +23,7 @@ from app.core.database import get_db
 from app.core.response import BizException, normalize_page, ok, paginate
 from app.core.security import require_roles
 from app.models.basic import Warehouse
-from app.models.order import ORDER_STATUS_PENDING, SalesOrder, ensure_transition
+from app.models.order import ORDER_STATUS_PARTIALLY_SHIPPED, ORDER_STATUS_PENDING, ORDER_STATUS_SHIPPED, SalesOrder, ensure_transition
 from app.models.user import SysUser
 from app.schemas.order import ClaimIn, ShipIn
 from app.services.inventory_service import (
@@ -140,12 +141,18 @@ def ship_order(
     """
     # 加行锁读取：保证「读状态 → 释放预留 → 扣库存 → 改状态」之间没有其他事务插入
     order = get_order_or_404(db, order_id, for_update=True)
-    target = ensure_transition(order.status, "发货")
+    ensure_transition(order.status, "发货")
 
     if order.warehouse_id is None:
         raise BizException("订单未指派仓库，无法发货")
 
-    changes = build_order_outbound_changes(order, order.warehouse_id)
+    item = order.items[0] if order.items else None
+    if item is None:
+        raise BizException("订单没有货号明细，无法发货")
+    remain = Decimal(item.count or 0) - Decimal(item.out_count or 0)
+    if payload.count > remain:
+        raise BizException(f"本次发货数量不能超过剩余待发数量 {remain}")
+    changes = [{"sku_id": item.sku_id, "warehouse_id": order.warehouse_id, "quantity": -payload.count}]
 
     # 先释放预留，再做可用量预校验：
     # 若不先释放，本单自己占用的预留量会把可用量算少，导致误报库存不足。
@@ -166,9 +173,9 @@ def ship_order(
     # 扣库存 + 生成出库单 + 回写明细 out_count（同一事务）
     # 注意：出库单号可能撞号重试，重试用 savepoint 回滚，
     # 所以订单字段的修改放在这一步之后，避免被 savepoint 回滚波及。
-    create_sales_out_from_order(db, order, current_user.id, payload.express_no)
+    create_sales_out_from_order(db, order, current_user.id, payload.express_no, payload.count)
 
-    order.status = target
+    order.status = ORDER_STATUS_SHIPPED if payload.count == remain else ORDER_STATUS_PARTIALLY_SHIPPED
     order.shipped_at = datetime.now()
     order.express_no = payload.express_no
     db.commit()

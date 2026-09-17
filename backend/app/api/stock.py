@@ -169,7 +169,7 @@ def build_sales_out_detail(db: Session, out: SalesOut) -> dict:
 
 # ---------------------------------------------------------------- 供发货接口复用
 def create_sales_out_from_order(
-    db: Session, order: SalesOrder, operator_id: int, express_no: str | None = None
+    db: Session, order: SalesOrder, operator_id: int, express_no: str | None = None, ship_count: Decimal | None = None
 ) -> SalesOut:
     """发货时生成一张「已完成」的出库单，并扣减库存、回写明细 out_count。
 
@@ -183,10 +183,11 @@ def create_sales_out_from_order(
     if not items:
         raise BizException("订单没有明细，无法出库")
 
-    # 出库数量取订单明细的剩余待出量：count - out_count
+    # 一单一货号：本次可发全部剩余，也可只发 ship_count。
     lines: list[tuple[SalesOrderItem, Decimal]] = []
     for item in items:
-        count = Decimal(item.count or 0) - Decimal(item.out_count or 0)
+        remain = Decimal(item.count or 0) - Decimal(item.out_count or 0)
+        count = min(remain, ship_count) if ship_count is not None else remain
         if count > 0:
             lines.append((item, count.quantize(CENT, rounding=ROUND_HALF_UP)))
     if not lines:

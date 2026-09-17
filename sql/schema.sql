@@ -63,14 +63,29 @@ CREATE TABLE IF NOT EXISTS `product` (
   UNIQUE KEY `uk_product_code` (`code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='商品表';
 
+CREATE TABLE IF NOT EXISTS `product_category` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `parent_id` bigint NULL DEFAULT NULL,
+  `level` tinyint NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `code_segment` varchar(8) NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_product_category_parent` (`parent_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='货号三级分类';
+
 -- -----------------------------------------------------------------------------
 -- 4.4 product_sku SKU 表
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `product_sku` (
   `id`         bigint        NOT NULL AUTO_INCREMENT              COMMENT '主键 ID',
   `product_id` bigint        NOT NULL                             COMMENT '所属商品 ID，关联 product.id',
+  `category_id` bigint        NULL     DEFAULT NULL                COMMENT '三级货号分类 ID',
   `sku_code`   varchar(64)   NOT NULL                             COMMENT 'SKU 编码（唯一），如 SKU001',
   `spec`       varchar(200)  NULL     DEFAULT NULL                COMMENT '规格描述，如 红色/大号',
+  `image_url`  varchar(500)  NULL     DEFAULT NULL                COMMENT 'SKU 图片地址',
+  `remark`     varchar(500)  NULL     DEFAULT NULL                COMMENT 'SKU 备注',
   `price`      decimal(14,2) NOT NULL DEFAULT 0.00                COMMENT '售价',
   `status`     tinyint       NOT NULL DEFAULT 1                   COMMENT '状态：1 启用 / 0 停用',
   `min_stock`  decimal(14,2) NOT NULL DEFAULT 0.00                COMMENT '安全库存下限，0 表示不预警',
@@ -103,7 +118,8 @@ CREATE TABLE IF NOT EXISTS `partner` (
 CREATE TABLE IF NOT EXISTS `sales_order` (
   `id`            bigint        NOT NULL AUTO_INCREMENT              COMMENT '主键 ID',
   `no`            varchar(32)   NOT NULL                             COMMENT '订单单号（唯一），格式 SO + yyyyMMdd + 4 位流水',
-  `customer_id`   bigint        NOT NULL                             COMMENT '客户 ID，关联 partner.id（type 含 1）',
+  `external_no`   varchar(100)  NOT NULL                             COMMENT '店小秘订单号（唯一）',
+  `customer_id`   bigint        NULL                                 COMMENT '客户 ID，关联 partner.id（可空）',
   `status`        tinyint       NOT NULL DEFAULT 10                  COMMENT '订单状态：10 待接单 / 20 已接单 / 30 备货中 / 40 已发货 / 50 已完成 / 90 已取消',
   `audit_status`  tinyint       NOT NULL DEFAULT 0                   COMMENT '审批状态：0 未审批 / 1 已审批',
   `warehouse_id`  bigint        NULL     DEFAULT NULL                COMMENT '指派仓库 ID，接单时写入',
@@ -122,6 +138,7 @@ CREATE TABLE IF NOT EXISTS `sales_order` (
   `updated_at`    datetime      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_sales_order_no` (`no`),
+  UNIQUE KEY `uk_sales_order_external_no` (`external_no`),
   KEY `idx_sales_order_status` (`status`),
   KEY `idx_sales_order_created_by` (`created_by`),
   KEY `idx_sales_order_created_at` (`created_at`)

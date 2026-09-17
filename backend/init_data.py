@@ -250,6 +250,7 @@ def init_sample_order(
 
     order = SalesOrder(
         no=SAMPLE_ORDER_NO,
+        external_no=SAMPLE_ORDER_NO,
         customer_id=customer.id,
         status=10,
         audit_status=0,
