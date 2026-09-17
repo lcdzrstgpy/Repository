@@ -12,16 +12,21 @@
             @keyup.enter="handleSearch"
           />
         </el-form-item>
-        <el-form-item label="状态">
-          <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 150px">
-            <el-option v-for="item in ORDER_STATUS_OPTIONS" :key="item.value" :label="item.label" :value="item.value" />
-          </el-select>
-        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="handleSearch">查询</el-button>
           <el-button @click="handleReset">重置</el-button>
         </el-form-item>
       </el-form>
+
+      <el-tabs v-model="activeStatusTab" @tab-change="handleStatusTabChange">
+        <el-tab-pane label="全部" :name="ALL_STATUS_TAB" />
+        <el-tab-pane
+          v-for="item in ORDER_STATUS_OPTIONS"
+          :key="item.value"
+          :label="item.label"
+          :name="String(item.value)"
+        />
+      </el-tabs>
 
       <div class="table-toolbar">
         <div>
@@ -122,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPendingOrders, claimOrder } from '@/api/warehouse'
 import { getWarehouseOptions } from '@/api/basic'
@@ -141,6 +146,14 @@ const query = reactive({
   page_size: 20,
   keyword: '',
   status: null
+})
+
+const ALL_STATUS_TAB = 'all'
+const activeStatusTab = computed({
+  get: () => (query.status === null ? ALL_STATUS_TAB : String(query.status)),
+  set: (value) => {
+    query.status = value === ALL_STATUS_TAB ? null : Number(value)
+  }
 })
 
 const claimVisible = ref(false)
@@ -171,6 +184,11 @@ async function load() {
 }
 
 function handleSearch() {
+  query.page = 1
+  load()
+}
+
+function handleStatusTabChange() {
   query.page = 1
   load()
 }

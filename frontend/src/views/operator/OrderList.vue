@@ -3,16 +3,6 @@
     <!-- 查询条件 -->
     <el-card shadow="never" class="search-card">
       <el-form :model="query" inline>
-        <el-form-item label="订单状态">
-          <el-select v-model="query.status" placeholder="全部状态" clearable style="width: 160px">
-            <el-option
-              v-for="item in ORDER_STATUS_OPTIONS"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="关键词">
           <el-input
             v-model="query.keyword"
@@ -36,6 +26,16 @@
     </el-card>
 
     <el-card shadow="never">
+      <el-tabs v-model="activeStatusTab" @tab-change="handleStatusTabChange">
+        <el-tab-pane label="全部" :name="ALL_STATUS_TAB" />
+        <el-tab-pane
+          v-for="item in ORDER_STATUS_OPTIONS"
+          :key="item.value"
+          :label="item.label"
+          :name="String(item.value)"
+        />
+      </el-tabs>
+
       <div class="table-toolbar">
         <span class="text-muted">共 {{ total }} 条订单</span>
         <div>
@@ -123,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getOrderList, cancelOrder, confirmOrder } from '@/api/order'
@@ -150,6 +150,14 @@ const query = reactive({
   keyword: ''
 })
 
+const ALL_STATUS_TAB = 'all'
+const activeStatusTab = computed({
+  get: () => (query.status === '' ? ALL_STATUS_TAB : String(query.status)),
+  set: (value) => {
+    query.status = value === ALL_STATUS_TAB ? '' : Number(value)
+  }
+})
+
 const detailVisible = ref(false)
 const currentOrderId = ref(null)
 
@@ -174,6 +182,11 @@ async function load() {
 }
 
 function handleSearch() {
+  query.page = 1
+  load()
+}
+
+function handleStatusTabChange() {
   query.page = 1
   load()
 }
