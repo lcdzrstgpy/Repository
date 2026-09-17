@@ -340,7 +340,7 @@ def inbound_inventory(
     if warehouse is None:
         raise BizException("仓库不存在")
 
-    quantity = Decimal(payload.quantity).quantize(CENT, rounding=ROUND_HALF_UP)
+    quantity = Decimal(payload.quantity)
     change_inventory(
         db,
         [{"sku_id": sku.id, "warehouse_id": warehouse.id, "quantity": quantity}],

@@ -6,7 +6,7 @@ datetime 格式化、Decimal 转 float、字段名与契约示例一一对应。
 
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from app.models.basic import Product, ProductSku
 from app.models.stock import SalesOut, SalesOutItem, sales_out_status_text
@@ -28,7 +28,7 @@ class InventoryInboundIn(BaseModel):
 
     sku_id: int = Field(..., gt=0, description="SKU id")
     warehouse_id: int = Field(..., gt=0, description="仓库 id")
-    quantity: Decimal = Field(..., gt=0, description="本次入库数量")
+    quantity: StrictInt = Field(..., gt=0, description="本次入库数量（正整数）")
     remark: str | None = Field(None, max_length=500, description="备注")
 
 

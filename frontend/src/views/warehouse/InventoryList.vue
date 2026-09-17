@@ -141,7 +141,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="入库数量" prop="quantity">
-          <el-input-number v-model="inboundForm.quantity" :min="0.01" :precision="2" :step="1" controls-position="right" style="width: 100%" />
+          <el-input-number v-model="inboundForm.quantity" :min="1" :precision="0" :step="1" controls-position="right" style="width: 100%" />
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="inboundForm.remark" type="textarea" :rows="3" maxlength="500" show-word-limit placeholder="如：提前备货、采购到货" />
