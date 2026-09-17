@@ -17,7 +17,7 @@
         router
         unique-opened
       >
-        <template v-for="group in menuGroups" :key="group.title">
+        <template v-for="group in menuGroups" :key="group.key">
           <!-- 无分组：直接渲染一级菜单 -->
           <el-menu-item v-if="!group.title" :index="group.items[0].path">
             <el-icon><component :is="group.items[0].icon" /></el-icon>
@@ -110,7 +110,8 @@ const currentGroup = computed(() => route.meta?.group || '')
 
 /**
  * 根据当前角色过滤路由，生成侧边栏菜单
- * 同一 group 的菜单合并成一个子菜单；无 group 的作为一级菜单
+ * 同一 group 的菜单合并成一个子菜单；无 group 的作为一级菜单。
+ * 运营端功能较少，运营管理下的菜单直接平铺为一级菜单。
  */
 const menuGroups = computed(() => {
   const layoutRoute = routes.find((item) => item.path === '/')
@@ -130,10 +131,21 @@ const menuGroups = computed(() => {
   // 分组图标：未配置时取该分组第一个菜单项的图标
   const groupIconMap = { 仓储管理: 'Box', 库存管理: 'Coin', 基础数据: 'Setting' }
   visible.forEach((item) => {
+    if (role === 'operator' && item.group === '运营管理') {
+      groups.push({ key: item.path, title: '', icon: item.icon, items: [item] })
+      return
+    }
+
     const groupTitle = item.group
-    let group = groups.find((g) => g.title === groupTitle)
+    const groupKey = groupTitle || item.path
+    let group = groups.find((g) => g.key === groupKey)
     if (!group) {
-      group = { title: groupTitle, icon: groupIconMap[groupTitle] || item.icon, items: [] }
+      group = {
+        key: groupKey,
+        title: groupTitle,
+        icon: groupIconMap[groupTitle] || item.icon,
+        items: []
+      }
       groups.push(group)
     }
     group.items.push(item)
