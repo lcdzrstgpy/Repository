@@ -205,11 +205,11 @@ def export_skus(
 def export_inventory(
     warehouse_id: int | None = Query(None, description="按仓库筛选"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """库存：SKU 编码 / 商品名称 / 规格 / 仓库 / 库存量 / 预留量 / 可用量。
 
-    仅 warehouse / admin；支持 `?warehouse_id=`（契约 14.1）。
+    仅 warehouse；支持 `?warehouse_id=`（契约 14.1）。
     """
     stmt = (
         select(Inventory, ProductSku, Product, Warehouse)

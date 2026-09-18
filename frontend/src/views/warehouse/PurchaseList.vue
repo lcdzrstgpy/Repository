@@ -211,8 +211,8 @@ import ReceiveDialog from './components/ReceiveDialog.vue'
 const router = useRouter()
 const userStore = useUserStore()
 
-/** 可创建 / 取消 / 采购完成角色 */
-const canWarehouse = computed(() => ['warehouse', 'admin'].includes(userStore.role))
+/** 管理员只读；创建、取消、采购完成均由仓储执行。 */
+const canWarehouse = computed(() => userStore.role === 'warehouse')
 
 /** 当前页签：order 采购单 / in 采购入库单 */
 const activeTab = ref('order')

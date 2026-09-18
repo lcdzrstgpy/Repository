@@ -81,8 +81,8 @@ const stats = ref({
   alerts: 0
 })
 
-/** 库存预警由仓储或管理员处理；运营使用“货号查询”查看只读库存。 */
-const canViewAlerts = computed(() => ['warehouse', 'admin'].includes(userStore.role))
+/** 库存预警是仓储执行事项；管理员首页只显示全局订单统计。 */
+const canViewAlerts = computed(() => userStore.role === 'warehouse')
 
 /** 问候语按当前时间段变化 */
 const greeting = computed(() => {

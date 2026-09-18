@@ -55,7 +55,7 @@ def pending_orders(
     keyword: str | None = Query(None, max_length=100, description="订单号、商品名或备注"),
     status: int | None = Query(None, description="订单状态"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """订单处理页：按订单号、商品名、备注和状态查询全部订单。
 
@@ -89,7 +89,7 @@ def pending_orders(
 def purchase_summary(
     warehouse_id: int | None = Query(None, gt=0, description="按仓库筛选"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """按仓库和货号汇总所有「备货中」订单的未发数量，辅助一次性采购。
 
@@ -172,7 +172,7 @@ def preparing_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """为当前备货批次挑出可完整发货的订单。
 
@@ -239,7 +239,7 @@ def claim_order(
     order_id: int,
     payload: ClaimIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """接单。仅 status = 10 可接单，写 claimed_by / claimed_at / warehouse_id。
 
@@ -407,7 +407,7 @@ def _create_sku_for_item(db: Session, new_sku: NewSkuIn) -> ProductSku:
 @router.get("/item-numbers", summary="货号管理列表")
 def item_numbers(
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     rows = db.execute(
         select(ProductSku, Product)
@@ -430,7 +430,7 @@ def item_numbers(
 def create_item_number(
     payload: NewSkuIn,
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     try:
         sku = _create_sku_for_item(db, payload)
@@ -449,7 +449,7 @@ def update_item_number_status(
     sku_id: int,
     payload: ItemNumberStatusIn,
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """启用或停用货号；停用不会删除已有库存、订单和库存流水。"""
     sku = db.get(ProductSku, sku_id)
@@ -465,7 +465,7 @@ def bind_order_sku(
     order_id: int,
     payload: BindSkuIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """为订单明细行关联已有货号或新建货号（契约 19.2 / 19.7）。
 
@@ -527,7 +527,7 @@ def bind_order_sku(
 @router.post("/orders/{order_id}/prepare", summary="开始备货（已废弃）")
 def prepare_order(
     order_id: int,
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """已废弃（契约第十八节）：保留路由避免前端旧代码直接 404。
 
@@ -542,7 +542,7 @@ def ship_order(
     order_id: int,
     payload: ShipIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """发货。仅 status = 30 可发货，写 shipped_at / express_no，并直接把订单置为「已完成」。
 

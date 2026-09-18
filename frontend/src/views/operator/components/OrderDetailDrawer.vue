@@ -82,7 +82,7 @@
           <el-table-column prop="count" label="数量" width="80" align="right">
             <template #default="{ row }">
               <el-input-number
-                v-if="detail.status === 25"
+                v-if="detail.status === 25 && !readonly"
                 v-model="quantityForm[row.id]"
                 :min="1"
                 :precision="0"
@@ -102,13 +102,13 @@
           </el-table-column>
           <el-table-column prop="total_price" label="小计" width="100" align="right">
             <template #default="{ row }">
-              ￥{{ formatAmount(detail.status === 25 ? quantityForm[row.id] * row.expect_price : row.total_price) }}
+              ￥{{ formatAmount(detail.status === 25 && !readonly ? quantityForm[row.id] * row.expect_price : row.total_price) }}
             </template>
           </el-table-column>
         </el-table>
 
         <!-- 数量待确认(25) 时运营填写最终数量，确认后由系统锁库并进入备货中(30) -->
-        <div v-if="detail.status === 25" class="footer-actions">
+        <div v-if="detail.status === 25 && !readonly" class="footer-actions">
           <span class="text-muted">请填写最终出库数量；确认后交由仓储备货或采购。</span>
           <el-button type="warning" :loading="confirming" @click="handleConfirmQuantity">
             确认数量并开始备货
@@ -130,7 +130,8 @@ import { formatAmount, formatCount } from '@/utils/format'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  orderId: { type: [Number, String], default: null }
+  orderId: { type: [Number, String], default: null },
+  readonly: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:modelValue', 'updated'])
@@ -142,11 +143,11 @@ const quantityForm = reactive({})
 
 const orderStatusText = computed(() => detail.value?.status_text || '-')
 const displayTotalCount = computed(() => {
-  if (detail.value?.status !== 25) return detail.value?.total_count || 0
+  if (detail.value?.status !== 25 || props.readonly) return detail.value?.total_count || 0
   return (detail.value.items || []).reduce((total, row) => total + Number(quantityForm[row.id] || 0), 0)
 })
 const displayTotalPrice = computed(() => {
-  if (detail.value?.status !== 25) return detail.value?.total_price || 0
+  if (detail.value?.status !== 25 || props.readonly) return detail.value?.total_price || 0
   return (detail.value.items || []).reduce(
     (total, row) => total + Number(quantityForm[row.id] || 0) * Number(row.expect_price || 0),
     0
@@ -195,6 +196,7 @@ function syncQuantityForm() {
  * 提交每一行的最终正整数数量。后端以此重算总数/总成本，库存由仓储备货或采购处理。
  */
 async function handleConfirmQuantity() {
+  if (props.readonly) return
   const items = (detail.value?.items || []).map((row) => ({
     item_id: row.id,
     count: Number(quantityForm[row.id])

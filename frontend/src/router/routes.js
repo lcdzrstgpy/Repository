@@ -39,7 +39,7 @@ export const routes = [
         meta: {
           title: '我的订单',
           icon: 'List',
-          roles: ['operator', 'admin'],
+          roles: ['operator'],
           menu: true,
           group: '运营管理'
         }
@@ -51,7 +51,7 @@ export const routes = [
         meta: {
           title: '新建订单',
           icon: 'DocumentAdd',
-          roles: ['operator', 'admin'],
+          roles: ['operator'],
           menu: true,
           group: '运营管理'
         }
@@ -63,7 +63,7 @@ export const routes = [
         meta: {
           title: '货号查询',
           icon: 'Search',
-          roles: ['operator', 'admin'],
+          roles: ['operator'],
           menu: true,
           group: '运营管理'
         }
@@ -77,7 +77,7 @@ export const routes = [
         meta: {
           title: '订单处理',
           icon: 'Bell',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: true,
           group: '仓储管理'
         }
@@ -89,7 +89,7 @@ export const routes = [
         meta: {
           title: '备货发货',
           icon: 'Box',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: true,
           group: '仓储管理'
         }
@@ -101,7 +101,7 @@ export const routes = [
         meta: {
           title: '我处理的单',
           icon: 'Tickets',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '仓储管理'
         }
@@ -113,7 +113,7 @@ export const routes = [
         meta: {
           title: '出库记录',
           icon: 'TakeawayBox',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '仓储管理'
         }
@@ -125,7 +125,7 @@ export const routes = [
         meta: {
           title: '采购单管理',
           icon: 'ShoppingCart',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: true,
           group: '仓储管理'
         }
@@ -136,7 +136,7 @@ export const routes = [
         meta: {
           title: '采购单管理',
           icon: 'ShoppingCart',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '仓储管理'
         }
@@ -148,7 +148,7 @@ export const routes = [
         meta: {
           title: '货号管理',
           icon: 'Grid',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '仓储管理'
         }
@@ -160,7 +160,7 @@ export const routes = [
         meta: {
           title: '新建采购单',
           icon: 'DocumentAdd',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           // 从采购单列表跳转，不占用侧边栏
           menu: false,
           group: '仓储管理'
@@ -174,7 +174,7 @@ export const routes = [
         meta: {
           title: '货号库存',
           icon: 'Coin',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: true,
           group: '库存管理'
         }
@@ -186,7 +186,7 @@ export const routes = [
         meta: {
           title: '库存流水',
           icon: 'Clock',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '库存管理'
         }
@@ -198,23 +198,45 @@ export const routes = [
         meta: {
           title: '库存预警',
           icon: 'Warning',
-          roles: ['warehouse', 'admin'],
+          roles: ['warehouse'],
           menu: false,
           group: '库存管理'
         }
       },
 
+      // ---------- 管理员：全局查看与主数据维护，不参与运营 / 仓储执行 ----------
+      {
+        path: 'admin/orders',
+        name: 'AdminOrderList',
+        component: () => import('@/views/admin/AdminOrderList.vue'),
+        meta: {
+          title: '全部订单',
+          icon: 'List',
+          roles: ['admin'],
+          menu: true
+        }
+      },
+      {
+        path: 'admin/purchases',
+        name: 'AdminPurchaseList',
+        component: () => import('@/views/warehouse/PurchaseList.vue'),
+        meta: {
+          title: '采购单',
+          icon: 'ShoppingCart',
+          roles: ['admin'],
+          menu: true
+        }
+      },
       // ---------- 基础数据（仅管理员） ----------
       {
         path: 'basic/products',
         name: 'BasicProduct',
         component: () => import('@/views/basic/ProductManage.vue'),
         meta: {
-          title: '商品管理',
+          title: '商品名称维护',
           icon: 'Goods',
           roles: ['admin'],
-          menu: true,
-          group: '基础数据'
+          menu: false
         }
       },
       {
@@ -222,11 +244,10 @@ export const routes = [
         name: 'BasicSku',
         component: () => import('@/views/basic/SkuManage.vue'),
         meta: {
-          title: 'SKU 管理',
+          title: '货号管理',
           icon: 'Grid',
           roles: ['admin'],
-          menu: false,
-          group: '基础数据'
+          menu: true
         }
       },
       {
@@ -234,11 +255,10 @@ export const routes = [
         name: 'BasicUser',
         component: () => import('@/views/basic/UserManage.vue'),
         meta: {
-          title: '用户管理',
+          title: '人员与权限',
           icon: 'Avatar',
           roles: ['admin'],
-          menu: true,
-          group: '基础数据'
+          menu: true
         }
       }
     ]

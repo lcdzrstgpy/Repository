@@ -54,7 +54,7 @@ def list_inventory(
     page_size: int = Query(20, ge=1),
     keyword: str | None = Query(None, description="SKU 编码 / 商品名称 / 规格"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """库存余额列表，available_quantity = quantity - reserved_quantity。"""
     page, page_size = normalize_page(page, page_size)
@@ -119,7 +119,7 @@ def list_inventory_alerts(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """库存预警：SKU 设了安全库存（min_stock > 0）且可用量低于安全库存。
 
@@ -191,7 +191,7 @@ def list_inventory_history(
     page_size: int = Query(20, ge=1),
     sku_id: int | None = Query(None, description="按 SKU 筛选"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """库存流水列表。"""
     page, page_size = normalize_page(page, page_size)
@@ -258,7 +258,7 @@ def list_inventory_history(
 def adjust_inventory(
     payload: InventoryAdjustIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """仓储和管理员可调整库存；`quantity` 是目标值，后端算出差异后走库存流水。"""
     sku = db.get(ProductSku, payload.sku_id)
@@ -318,7 +318,7 @@ def adjust_inventory(
 def inbound_inventory(
     payload: InventoryInboundIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """仓储录入采购或提前备货数量，并写入采购入库库存流水。"""
     sku = db.get(ProductSku, payload.sku_id)

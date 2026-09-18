@@ -319,7 +319,7 @@ def build_purchase_candidates(db: Session) -> list[dict]:
 def create_purchase_order(
     payload: PurchaseOrderCreateIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """创建采购单。created_by 取当前用户，status 固定 10，总额由后端汇总。
 
@@ -398,7 +398,7 @@ def create_purchase_order(
 @router.get("/candidates", summary="缺货订单采购候选")
 def list_purchase_candidates(
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """返回库存不足的备货订单及自动计算出的采购明细。"""
     return ok(build_purchase_candidates(db))
@@ -465,7 +465,7 @@ def get_purchase_order(
 def approve_purchase_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("approver", "admin")),
+    current_user: SysUser = Depends(require_roles("approver")),
 ):
     """审批通过：status 10 → 20，写 approved_by / approved_at。审批不影响库存。"""
     order = get_purchase_order_or_404(db, order_id)
@@ -486,7 +486,7 @@ def approve_purchase_order(
 def cancel_purchase_order(
     order_id: int,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """取消采购单：status 10 / 20 可取消，改为 90；已有入库记录则不允许取消。"""
     order = get_purchase_order_or_404(db, order_id)
@@ -514,7 +514,7 @@ def receive_purchase_order(
     order_id: int,
     payload: PurchaseReceiveIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """收货入库（契约 10.3 六步）。
 

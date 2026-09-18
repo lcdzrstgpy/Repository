@@ -28,6 +28,10 @@
       <div class="table-toolbar">
         <span class="text-muted">共 {{ total }} 条货号记录</span>
         <div>
+          <el-button v-if="userStore.isAdmin" @click="$router.push('/basic/products')">
+            <el-icon><Goods /></el-icon>
+            <span style="margin-left: 4px">维护商品名称</span>
+          </el-button>
           <el-button v-if="userStore.isAdmin" :loading="exporting" @click="handleExport">
             <el-icon><Download /></el-icon>
             <span style="margin-left: 4px">导出 Excel</span>

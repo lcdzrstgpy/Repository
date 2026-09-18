@@ -183,7 +183,7 @@ def build_order_outbound_changes(order: SalesOrder, warehouse_id: int) -> list[d
 def create_order(
     payload: SalesOrderCreateIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("operator", "admin")),
+    current_user: SysUser = Depends(require_roles("operator")),
 ):
     """运营录入外部平台订单（契约 19.1）。
 
@@ -302,7 +302,7 @@ def cancel_order(
     order_id: int,
     payload: SalesOrderCancelIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("operator", "warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("operator", "warehouse")),
 ):
     """取消订单。仅 status 在 10 / 20 / 25 / 30 时可取消；operator 只能取消自己的订单。
 
@@ -329,11 +329,11 @@ def confirm_quantity(
     order_id: int,
     payload: ConfirmQuantityIn,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("operator", "admin")),
+    current_user: SysUser = Depends(require_roles("operator")),
 ):
     """运营确认数量：25「数量待确认」→ 30「备货中」（契约 19.6）。
 
-    - 仅 `operator`（且只能操作自己创建的订单）/ `admin` 可调用；
+    - 仅 `operator`（且只能操作自己创建的订单）可调用；
     - 运营提交每个订单明细的最终数量，必须完整覆盖订单明细且不允许重复；
     - 处理顺序（同一事务）：校验状态 → 校验数量明细 → 更新数量汇总
       → 改状态 + 写 prepare_at；不校验或预留库存。

@@ -286,7 +286,7 @@ if new_item:
     r = client.post(
         "/api/inventory/adjust",
         json={"sku_id": new_item["sku_id"], "warehouse_id": 1, "quantity": 100, "remark": "冒烟测试补货"},
-        headers=admin_h,
+        headers=wh_h,
     )
     check("为新货号补货（模拟采购入库）", body(r).get("code") == 0, str(body(r))[:150])
 
@@ -361,6 +361,23 @@ print("\n=== 8. 权限校验 ===")
 r = client.post("/api/warehouses", json={"code": "WH999", "name": "越权测试"}, headers=op_h)
 check("仓库创建接口已下线", body(r).get("code") == 404, str(body(r))[:100])
 
+# 管理员只负责全局查看与主数据/人员维护，不能代替运营直接下单。
+r = client.post(
+    "/api/sales-orders",
+    json={
+        "no": "TB-ADMIN-BLOCK-001",
+        "items": [{"product_name": "管理员越权下单", "sku_code": "SKU001", "count": 1, "expect_price": 1.0}],
+    },
+    headers=admin_h,
+)
+check("管理员不能代运营创建订单", body(r).get("code") == 403, str(body(r))[:100])
+
+r = client.get("/api/sales-orders", headers=admin_h)
+check("管理员可全局查看订单", body(r).get("code") == 0, str(body(r))[:100])
+
+r = client.get("/api/purchase-orders", headers=admin_h)
+check("管理员可查看采购单", body(r).get("code") == 0, str(body(r))[:100])
+
 r = client.post(
     "/api/sales-orders",
     json={
@@ -370,6 +387,13 @@ r = client.post(
     headers=op_h,
 )
 other_order = (body(r).get("data") or {}).get("id")
+r = client.post(
+    f"/api/sales-orders/{other_order}/cancel",
+    json={"cancel_reason": "管理员越权测试"},
+    headers=admin_h,
+)
+check("管理员不能取消订单", body(r).get("code") == 403, str(body(r))[:100])
+
 r = client.post(f"/api/warehouse/orders/{other_order}/claim", json={"warehouse_id": 1}, headers=op_h)
 check("operator 不能接单", body(r).get("code") == 403, str(body(r))[:100])
 
@@ -490,7 +514,7 @@ check("创建采购单", d.get("code") == 0 and po_id, str(d)[:150])
 check("采购单初始状态=10", d.get("data", {}).get("status") == 10)
 
 r = client.post(f"/api/purchase-orders/{po_id}/approve", json={}, headers=admin_h)
-check("审批采购单", body(r).get("code") == 0, str(body(r))[:120])
+check("管理员不能审批采购单", body(r).get("code") == 403, str(body(r))[:120])
 
 r = client.get(f"/api/purchase-orders/{po_id}", headers=wh_h)
 po = body(r).get("data", {})
@@ -521,12 +545,14 @@ print("\n=== 11. Excel 导出 ===")
 for name, path in [
     ("商品", "/api/export/products"),
     ("SKU", "/api/export/skus"),
-    ("库存", "/api/export/inventory"),
     ("订单", "/api/export/sales-orders"),
 ]:
     r = client.get(path, headers=admin_h)
     ok = r.status_code == 200 and r.content[:2] == b"PK"
     check(f"导出{name}", ok, f"HTTP {r.status_code}, {len(r.content)} bytes")
+
+r = client.get("/api/export/inventory", headers=wh_h)
+check("仓储可导出库存", r.status_code == 200 and r.content[:2] == b"PK", f"HTTP {r.status_code}, {len(r.content)} bytes")
 
 # ---------------------------------------------------------------- 结果
 print("\n" + "=" * 60)

@@ -244,7 +244,7 @@ def list_sales_outs(
     keyword: str | None = Query(None, description="出库单号 / 订单号 / 物流单号"),
     warehouse_id: int | None = Query(None, description="按仓库筛选"),
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """出库单列表。"""
     page, page_size = normalize_page(page, page_size)
@@ -280,7 +280,7 @@ def list_sales_outs(
 def get_sales_out(
     out_id: int,
     db: Session = Depends(get_db),
-    _current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    _current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """出库单详情，含明细。"""
     out = get_sales_out_or_404(db, out_id)
@@ -291,7 +291,7 @@ def get_sales_out(
 def cancel_sales_out(
     out_id: int,
     db: Session = Depends(get_db),
-    current_user: SysUser = Depends(require_roles("warehouse", "admin")),
+    current_user: SysUser = Depends(require_roles("warehouse")),
 ):
     """作废出库单：反向回滚库存，关联订单从「已完成」退回「备货中」。
 
